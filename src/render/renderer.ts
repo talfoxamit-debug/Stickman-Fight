@@ -10,7 +10,15 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.4 · moveset (light/heavy/stab + combos)';
+const VERSION = 'v0.5 · stepping + unarmed + blood + arena';
+
+/** Blend two #rrggbb colors (t in 0..1). */
+function hexLerp(a: string, b: string, t: number): string {
+  const pa = [parseInt(a.slice(1, 3), 16), parseInt(a.slice(3, 5), 16), parseInt(a.slice(5, 7), 16)];
+  const pb = [parseInt(b.slice(1, 3), 16), parseInt(b.slice(3, 5), 16), parseInt(b.slice(5, 7), 16)];
+  const m = (i: number) => Math.round(pa[i] + (pb[i] - pa[i]) * t);
+  return `rgb(${m(0)},${m(1)},${m(2)})`;
+}
 
 const PART_DIMS: Record<PartName, { len: number; thick: number }> = {
   head: { len: B.headRadius * 2, thick: B.headRadius * 2 },
@@ -42,6 +50,7 @@ export class Renderer {
     ctx.save();
     ctx.translate(fx.shakeX, fx.shakeY);
     this.platform(ctx);
+    this.floatingPlatforms(ctx);
     for (const w of match.looseWeapons) this.weapon(ctx, w, false);
     for (const f of match.fighters) this.fighter(ctx, f);
     fx.draw(ctx);
@@ -67,11 +76,16 @@ export class Renderer {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
 
-    // Festival "moon" + glow orbs.
+    // Festival "moon" + glow orbs (stars).
     this.glowCircle(ctx, W * 0.82, 120, 46, 'rgba(255,221,120,0.9)', 60);
-    this.glowCircle(ctx, W * 0.18, 90, 8, 'rgba(0,240,255,0.8)', 30);
-    this.glowCircle(ctx, W * 0.4, 70, 5, 'rgba(255,55,200,0.8)', 24);
-    this.glowCircle(ctx, W * 0.62, 110, 6, 'rgba(124,255,90,0.8)', 26);
+    const stars = [[0.18, 90, 8, '#00f0ff'], [0.4, 70, 5, '#ff37c8'], [0.62, 110, 6, '#7cff5a'], [0.3, 130, 4, '#b18bff'], [0.7, 60, 4, '#ffcf4d'], [0.5, 50, 3, '#fff']];
+    for (const [fx, y, r, col] of stars as [number, number, number, string][]) this.glowCircle(ctx, W * fx, y, r, col, r * 4);
+
+    // The Effigy (a big burnable-looking neon "man" in the distance).
+    this.effigy(ctx, W * 0.5, CFG.arena.floorY - 30, '#ff7a18');
+    // Glowing totems flanking the arena.
+    this.totem(ctx, 110, CFG.arena.floorY, '#00f0ff');
+    this.totem(ctx, W - 110, CFG.arena.floorY, '#ff37c8');
 
     // Horizon haze.
     const hz = ctx.createLinearGradient(0, CFG.arena.floorY - 120, 0, CFG.arena.floorY);
@@ -119,6 +133,57 @@ export class Renderer {
     ctx.restore();
   }
 
+  private floatingPlatforms(ctx: CanvasRenderingContext2D): void {
+    for (const p of CFG.arena.platforms) {
+      const x = p.x - p.w / 2;
+      const top = p.y - p.h / 2;
+      ctx.fillStyle = '#180b26';
+      ctx.fillRect(x, top, p.w, p.h);
+      ctx.save();
+      ctx.shadowColor = '#7cff5a';
+      ctx.shadowBlur = 18;
+      ctx.strokeStyle = '#7cff5a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x + p.w, top);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  private effigy(ctx: CanvasRenderingContext2D, x: number, baseY: number, color: string): void {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 30;
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    const h = 150;
+    ctx.beginPath();
+    ctx.moveTo(x, baseY - h); ctx.lineTo(x, baseY - h * 0.35); // body
+    ctx.moveTo(x - 40, baseY - h * 0.75); ctx.lineTo(x + 40, baseY - h * 0.75); // arms
+    ctx.moveTo(x, baseY - h * 0.35); ctx.lineTo(x - 28, baseY); // legs
+    ctx.moveTo(x, baseY - h * 0.35); ctx.lineTo(x + 28, baseY);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, baseY - h - 16, 16, 0, Math.PI * 2); ctx.stroke(); // head
+    ctx.restore();
+  }
+
+  private totem(ctx: CanvasRenderingContext2D, x: number, baseY: number, color: string): void {
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#120820';
+    ctx.fillRect(x - 9, baseY - 200, 18, 200);
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 22;
+    ctx.fillStyle = color;
+    for (let i = 0; i < 5; i++) ctx.fillRect(x - 11, baseY - 190 + i * 40, 22, 7);
+    ctx.beginPath(); ctx.arc(x, baseY - 208, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
   // ---- fighter ------------------------------------------------------------
 
   private fighter(ctx: CanvasRenderingContext2D, f: Fighter): void {
@@ -142,22 +207,51 @@ export class Renderer {
     const x2 = body.position.x + ax * half;
     const y2 = body.position.y + ay * half;
 
+    const health = f.limbHealth(part);
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineWidth = dims.thick;
     if (broken) {
-      ctx.strokeStyle = '#4b4459';
+      // Severed limb: dark, bloodied, no glow.
+      ctx.strokeStyle = '#5a1014';
       ctx.shadowBlur = 0;
-      ctx.globalAlpha = 0.7;
+      ctx.globalAlpha = 0.85;
     } else {
-      ctx.strokeStyle = part === 'torso' ? f.color : f.accent;
+      // Wounded limbs tint toward blood red as their joint integrity drops.
+      const base = part === 'torso' ? f.color : f.accent;
+      ctx.strokeStyle = hexLerp(base, '#9a0f16', (1 - health) * 0.85);
       ctx.shadowColor = f.color;
-      ctx.shadowBlur = 14;
+      ctx.shadowBlur = 12;
     }
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
     ctx.stroke();
+
+    // Wound gashes once a limb is hurt.
+    if (!broken && health < 0.8) {
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#c8121b';
+      ctx.lineWidth = 2;
+      const gashes = Math.min(3, Math.floor((1 - health) * 4));
+      for (let i = 0; i < gashes; i++) {
+        const tt = (i + 1) / (gashes + 1);
+        const gx = x1 + (x2 - x1) * tt;
+        const gy = y1 + (y2 - y1) * tt;
+        ctx.beginPath();
+        ctx.moveTo(gx - ay * 4, gy + ax * 4);
+        ctx.lineTo(gx + ay * 4, gy - ax * 4);
+        ctx.stroke();
+      }
+    }
+    // Bleeding stump cap at the severed end.
+    if (broken) {
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#7a0d12';
+      ctx.beginPath();
+      ctx.arc(x1, y1, dims.thick * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
 
     // A silly neon "tutu" at the hips (drawn over the torso bottom).

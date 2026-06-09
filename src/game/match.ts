@@ -12,6 +12,7 @@ const { Engine, Composite, Bodies, Body, Events } = Matter;
 
 export interface FxSink {
   impact(x: number, y: number, strength: number, color: string): void;
+  blood(x: number, y: number, amount: number): void;
   confetti(x: number, y: number): void;
   shake(amount: number): void;
 }
@@ -82,6 +83,13 @@ export class Match {
       (rail as unknown as { meta: BodyMeta }).meta = { fighterId: -1, kind: 'wall' };
       Composite.add(this.world, rail);
     }
+
+    // Floating platforms for verticality.
+    for (const p of CFG.arena.platforms) {
+      const plat = Bodies.rectangle(p.x, p.y, p.w, p.h, { isStatic: true, friction: 0.9, label: 'platform' });
+      (plat as unknown as { meta: BodyMeta }).meta = { fighterId: -1, kind: 'ground' };
+      Composite.add(this.world, plat);
+    }
   }
 
   private spawnFighters(): [Fighter, Fighter] {
@@ -137,6 +145,7 @@ export class Match {
     this.clampVelocities();
     this.handleGrabs(inputs);
     this.drainDroppedWeapons();
+    this.drainBreaks();
     this.faceOpponents();
     this.checkRingOut();
     this.advanceRoundFlow(now);
@@ -187,9 +196,9 @@ export class Match {
     let dmg = Math.min(raw, CFG.combat.maxHitDamage);
     if (dmg <= 0) return;
 
-    // A weapon swung as part of an attack scales damage + applies knockback.
+    // A weapon or fist/foot swung as part of an attack scales damage + applies knockback.
     let knock = 0;
-    if (oMeta.kind === 'weapon' && oMeta.fighterId >= 0) {
+    if (oMeta.fighterId >= 0) {
       const pow = this.fighters[oMeta.fighterId].attackPower();
       dmg *= pow.dmgMul;
       knock = pow.knock;
@@ -201,8 +210,8 @@ export class Match {
       if (knock > 0) this.applyKnockback(fighter, other, knock);
       const cx = (target.position.x + other.position.x) / 2;
       const cy = (target.position.y + other.position.y) / 2;
-      const color = oMeta.kind === 'weapon' ? '#fff2a8' : '#ff6b6b';
-      this.fx.impact(cx, cy, applied, color);
+      this.fx.blood(cx, cy, applied);
+      if (oMeta.kind === 'weapon') this.fx.impact(cx, cy, applied * 0.5, '#fff2a8'); // blade spark
       if (applied > 10) {
         this.fx.shake(Math.min(18, applied * 0.5));
         this.hitstopSteps = Math.max(this.hitstopSteps, applied > 22 ? 4 : 2);
@@ -241,6 +250,18 @@ export class Match {
         this.looseWeapons.push(...f.justDropped);
         f.justDropped.length = 0;
       }
+    }
+  }
+
+  /** A severed limb sprays a big gout of blood + a jolt. */
+  private drainBreaks(): void {
+    for (const f of this.fighters) {
+      for (const b of f.justBroke) {
+        this.fx.blood(b.x, b.y, 30);
+        this.fx.shake(9);
+        this.hitstopSteps = Math.max(this.hitstopSteps, 3);
+      }
+      f.justBroke.length = 0;
     }
   }
 

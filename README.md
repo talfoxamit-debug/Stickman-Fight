@@ -59,7 +59,9 @@ Global: **`B`** toggle P2 bot (play solo) · **`R`** rematch · **`P`** pause.
 > **Tip — limb tactics:** smash an arm to disarm your opponent (the weapon drops — grab
 > it!), break both legs to cripple their movement, or land sustained head hits for a
 > decapitation KO. Use the **stab** for reach, the **heavy** to launch them over the
-> railing for a ring-out.
+> railing for a ring-out. **Disarmed?** You automatically fall back to **punches and
+> kicks** — losing your weapon arm doesn't end the fight. Use the floating platforms to
+> juke and dive-attack.
 
 > Combat feel (PD-controlled "active ragdoll") is tuned via `src/config.ts` — every
 > knob (gravity, swing speed, joint integrity, damage) lives there for easy playtesting.

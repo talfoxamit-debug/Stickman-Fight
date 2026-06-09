@@ -17,6 +17,7 @@ interface Particle {
 }
 
 const CONFETTI = ['#ff37c8', '#00f0ff', '#ffcf4d', '#7cff5a', '#b18bff', '#ff6b6b', '#ffffff'];
+const BLOOD = ['#c8121b', '#e02030', '#8a0b12', '#ff3b4a', '#a00d16'];
 
 /** Particles + screen shake. Implements FxSink so the Match can poke it directly. */
 export class Fx implements FxSink {
@@ -39,6 +40,25 @@ export class Fx implements FxSink {
         size: randRange(1.5, 3.5),
         rot: 0, vr: 0,
         color,
+        square: false,
+      });
+    }
+  }
+
+  blood(x: number, y: number, amount: number): void {
+    const n = Math.min(34, 4 + Math.floor(amount * 1.1));
+    for (let i = 0; i < n; i++) {
+      const a = randRange(0, Math.PI * 2);
+      const sp = randRange(1, 2 + amount * 0.35);
+      this.parts.push({
+        x, y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - randRange(0.5, 2.5),
+        life: randRange(500, 1400),
+        max: 1400,
+        size: randRange(1.6, 4.2),
+        rot: 0, vr: 0,
+        color: pick(BLOOD),
         square: false,
       });
     }

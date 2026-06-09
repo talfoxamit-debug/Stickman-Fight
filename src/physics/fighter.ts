@@ -16,7 +16,17 @@ interface Joint {
   broken: boolean;
 }
 
-type AttackMotion = 'slash' | 'stab' | 'heavy';
+type AttackMotion = 'slash' | 'stab' | 'heavy' | 'punch' | 'kick';
+
+interface AttackDef {
+  antMs: number;
+  strikeMs: number;
+  cooldownMs: number;
+  omega: number;
+  lunge: number;
+  dmgMul: number;
+  knock: number;
+}
 
 interface ActiveAttack {
   motion: AttackMotion;
@@ -24,11 +34,12 @@ interface ActiveAttack {
   start: number;
   antMs: number; // anticipation window
   strikeMs: number; // strike window
-  omega: number; // strike spin for slash/heavy
+  omega: number; // strike spin
   lunge: number;
   dmgMul: number;
   knock: number;
   lunged: boolean;
+  limb?: 'L' | 'R'; // which arm/leg for punch/kick
 }
 
 const B = CFG.body;
@@ -49,6 +60,8 @@ export class Fighter {
   private grip: Matter.Constraint | null = null;
   /** Weapons released this step (by a thrown drop or an arm break); drained by Match. */
   justDropped: Weapon[] = [];
+  /** Joints severed this step (positions for blood spray); drained by Match. */
+  justBroke: { x: number; y: number }[] = [];
 
   coreHealth: number = CFG.health.core;
   maxCore: number = CFG.health.core;
@@ -260,11 +273,10 @@ export class Fighter {
 
   // ---- attacks ------------------------------------------------------------
 
-  /** Tap = light combo (slash -> backslash -> stab); hold past chargeMs = heavy. */
+  /** Tap = light combo; hold past chargeMs = heavy. Falls back to punch/kick if disarmed. */
   private handleAttackInput(now: number, input: PlayerInput): void {
-    const armOk = !this.isBroken('upperArmR') && !this.isBroken('lowerArmR');
-    const ready = this.hasWeapon() && armOk && !this.koed;
     const C = CFG.combat;
+    const ready = !this.koed && (this.canStrikeArmed() || this.canStrikeUnarmed());
     if (now > this.comboResetAt) this.comboStep = 0;
 
     const a = input.attack;
@@ -272,10 +284,11 @@ export class Fighter {
       this.attackHeldSince = now;
       this.heavyArmed = false;
     }
-    // Heavy fires once the key has been held long enough.
-    if (a && ready && !this.heavyArmed && !this.attack && this.attackHeldSince >= 0 &&
+    // Heavy fires once the key has been held long enough (armed only).
+    if (a && this.canStrikeArmed() && !this.heavyArmed && !this.attack && this.attackHeldSince >= 0 &&
         now - this.attackHeldSince >= C.chargeMs && now >= this.swingCooldownUntil) {
-      this.startHeavy(now);
+      this.begin(now, 'heavy', this.facing, C.heavy);
+      this.comboStep = 0;
       this.heavyArmed = true;
     }
     // Light combo fires on release of a short tap.
@@ -289,29 +302,48 @@ export class Fighter {
     this.prevAttack = a;
   }
 
+  private canStrikeArmed(): boolean {
+    return this.hasWeapon() && !this.isBroken('upperArmR') && !this.isBroken('lowerArmR');
+  }
+  private canStrikeUnarmed(): boolean {
+    return this.intactArm() !== null || this.intactLeg() !== null;
+  }
+  private intactArm(): 'L' | 'R' | null {
+    if (!this.isBroken('upperArmL') && !this.isBroken('lowerArmL')) return 'L';
+    if (!this.isBroken('upperArmR') && !this.isBroken('lowerArmR')) return 'R';
+    return null;
+  }
+  private intactLeg(): 'L' | 'R' | null {
+    if (!this.isBroken('upperLegR') && !this.isBroken('lowerLegR')) return 'R';
+    if (!this.isBroken('upperLegL') && !this.isBroken('lowerLegL')) return 'L';
+    return null;
+  }
+
+  private begin(now: number, motion: AttackMotion, dir: number, def: AttackDef, limb?: 'L' | 'R'): void {
+    this.attack = {
+      motion, dir, start: now, antMs: def.antMs, strikeMs: def.strikeMs, omega: def.omega,
+      lunge: def.lunge, dmgMul: def.dmgMul, knock: def.knock, lunged: false, limb,
+    };
+    this.swingCooldownUntil = now + def.cooldownMs;
+  }
+
   private startLightCombo(now: number): void {
     const C = CFG.combat;
     const f = this.facing;
     const step = this.comboStep;
-    if (step === 2) {
-      const s = C.stab;
-      this.attack = { motion: 'stab', dir: f, start: now, antMs: s.antMs, strikeMs: s.strikeMs, omega: 0, lunge: s.lunge, dmgMul: s.dmgMul, knock: s.knock, lunged: false };
-      this.swingCooldownUntil = now + s.cooldownMs;
+    if (this.canStrikeArmed()) {
+      if (step === 2) this.begin(now, 'stab', f, C.stab);
+      else this.begin(now, 'slash', step === 0 ? f : -f, C.light); // forehand, then backhand
     } else {
-      const l = C.light;
-      const dir = step === 0 ? f : -f; // forehand slash, then backhand
-      this.attack = { motion: 'slash', dir, start: now, antMs: l.antMs, strikeMs: l.strikeMs, omega: l.omega, lunge: l.lunge, dmgMul: l.dmgMul, knock: l.knock, lunged: false };
-      this.swingCooldownUntil = now + l.cooldownMs;
+      const arm = this.intactArm();
+      const leg = this.intactLeg();
+      if (step === 2 && leg) this.begin(now, 'kick', f, C.kick, leg);
+      else if (arm) this.begin(now, 'punch', step === 0 ? f : -f, C.punch, arm);
+      else if (leg) this.begin(now, 'kick', f, C.kick, leg);
+      else return;
     }
     this.comboStep = (step + 1) % 3;
     this.comboResetAt = now + C.comboWindowMs;
-  }
-
-  private startHeavy(now: number): void {
-    const h = CFG.combat.heavy;
-    this.attack = { motion: 'heavy', dir: this.facing, start: now, antMs: h.antMs, strikeMs: h.strikeMs, omega: h.omega, lunge: h.lunge, dmgMul: h.dmgMul, knock: h.knock, lunged: false };
-    this.swingCooldownUntil = now + h.cooldownMs;
-    this.comboStep = 0;
   }
 
   /** Power exposed to the damage system for the current attack (or neutral). */
@@ -321,47 +353,79 @@ export class Fighter {
 
   isCharging(now: number): boolean {
     return this.prevAttack && !this.heavyArmed && !this.attack && this.attackHeldSince >= 0 &&
-      now - this.attackHeldSince >= 110 && this.hasWeapon();
+      now - this.attackHeldSince >= 110 && this.canStrikeArmed();
   }
 
   private attackEnd(): number {
     return this.attack ? this.attack.start + this.attack.antMs + this.attack.strikeMs : 0;
   }
 
-  private executeAttack(now: number): void {
+  /** Runs the active attack and returns the parts it is driving (so posing skips them). */
+  private executeAttack(now: number): PartName[] {
     const atk = this.attack!;
     const striking = now - atk.start >= atk.antMs;
-    if (striking && !atk.lunged) {
-      const torso = this.parts.torso;
-      Body.setVelocity(torso, { x: torso.velocity.x + atk.dir * atk.lunge, y: torso.velocity.y });
-      atk.lunged = true;
+    const cock = CFG.combat.cockOmega;
+
+    if (atk.motion === 'punch' || atk.motion === 'kick') {
+      const isArm = atk.motion === 'punch';
+      const s = atk.limb ?? 'L';
+      const upper = (isArm ? `upperArm${s}` : `upperLeg${s}`) as PartName;
+      const lower = (isArm ? `lowerArm${s}` : `lowerLeg${s}`) as PartName;
+      if (this.isBroken(upper) || this.isBroken(lower)) { this.attack = null; return []; }
+      this.lungeOnce(atk, striking);
+      const pivot = isArm ? this.shoulderPivot() : this.hipPivot();
+      this.rigidSwing([this.parts[upper], this.parts[lower]], pivot, striking ? atk.dir * atk.omega : -atk.dir * cock);
+      return [upper, lower];
     }
+
+    // Weapon attacks (slash / stab / heavy) use the right arm.
+    if (this.isBroken('upperArmR') || this.isBroken('lowerArmR')) { this.attack = null; return []; }
+    this.lungeOnce(atk, striking);
     if (atk.motion === 'stab') {
       if (striking) this.stabForward(atk.dir);
-      else this.swingArm(-atk.dir * CFG.combat.cockOmega);
+      else this.swingArm(-atk.dir * cock);
     } else {
-      const omega = striking ? atk.dir * atk.omega : -atk.dir * CFG.combat.cockOmega;
-      this.swingArm(omega);
+      this.swingArm(striking ? atk.dir * atk.omega : -atk.dir * cock);
+    }
+    return ['upperArmR', 'lowerArmR'];
+  }
+
+  private lungeOnce(atk: ActiveAttack, striking: boolean): void {
+    if (striking && !atk.lunged) {
+      const t = this.parts.torso;
+      Body.setVelocity(t, { x: t.velocity.x + atk.dir * atk.lunge, y: t.velocity.y });
+      atk.lunged = true;
     }
   }
 
-  /** Rotate the whole arm+weapon rigidly about the shoulder (constraint-consistent). */
-  private swingArm(omega: number): void {
-    const torso = this.parts.torso;
-    const a = -(CFG.body.torso.h / 2 - 10); // shoulder anchor (torso-local y, up = negative)
-    const px = torso.position.x - a * Math.sin(torso.angle);
-    const py = torso.position.y + a * Math.cos(torso.angle);
+  private shoulderPivot(): { x: number; y: number } {
+    const t = this.parts.torso;
+    const a = -(CFG.body.torso.h / 2 - 10);
+    return { x: t.position.x - a * Math.sin(t.angle), y: t.position.y + a * Math.cos(t.angle) };
+  }
+  private hipPivot(): { x: number; y: number } {
+    const t = this.parts.torso;
+    const a = CFG.body.torso.h / 2 - 4;
+    return { x: t.position.x - a * Math.sin(t.angle), y: t.position.y + a * Math.cos(t.angle) };
+  }
+
+  /** Rotate a limb chain (+held weapon) rigidly about a pivot (constraint-consistent). */
+  private rigidSwing(parts: Matter.Body[], pivot: { x: number; y: number }, omega: number): void {
     const cap = CFG.sim.maxLinearSpeed * 0.78;
-    const parts: Matter.Body[] = [this.parts.upperArmR, this.parts.lowerArmR];
-    if (this.weapon) parts.push(this.weapon.body);
     for (const b of parts) {
-      let vx = -omega * (b.position.y - py);
-      let vy = omega * (b.position.x - px);
+      let vx = -omega * (b.position.y - pivot.y);
+      let vy = omega * (b.position.x - pivot.x);
       const sp = Math.hypot(vx, vy);
       if (sp > cap) { vx = (vx / sp) * cap; vy = (vy / sp) * cap; }
       Body.setVelocity(b, { x: vx, y: vy });
       Body.setAngularVelocity(b, omega);
     }
+  }
+
+  private swingArm(omega: number): void {
+    const parts: Matter.Body[] = [this.parts.upperArmR, this.parts.lowerArmR];
+    if (this.weapon) parts.push(this.weapon.body);
+    this.rigidSwing(parts, this.shoulderPivot(), omega);
   }
 
   /** Thrust the hand + weapon straight forward; the arm extends, the tip leads. */
@@ -370,7 +434,6 @@ export class Fighter {
     Body.setVelocity(this.parts.lowerArmR, { x: dir * v, y: this.parts.lowerArmR.velocity.y });
     Body.setVelocity(this.parts.upperArmR, { x: dir * v * 0.55, y: this.parts.upperArmR.velocity.y });
     if (this.weapon) Body.setVelocity(this.weapon.body, { x: dir * v, y: this.weapon.body.velocity.y });
-    // Point the arm forward so it reads as a thrust rather than a flail.
     this.driveAngle('lowerArmR', -dir * 1.45, CFG.control.poseGain * 2.5, 0.5, 0.9);
     this.driveAngle('upperArmR', -dir * 1.2, CFG.control.poseGain * 2.5, 0.5, 0.9);
   }
@@ -411,26 +474,28 @@ export class Fighter {
     // Torso self-righting (keep upright).
     this.driveAngle('torso', 0, c.rightGain, c.rightBlend, c.rightMaxVel);
 
-    // Weapon arm: run the active attack, hold a charged-heavy telegraph, or guard.
-    const armOk = !this.isBroken('upperArmR') && !this.isBroken('lowerArmR');
+    // Run the active attack (returns the limbs it drives), a charged-heavy telegraph,
+    // or nothing; posing below skips whatever the attack is steering.
     if (this.attack && now >= this.attackEnd()) this.attack = null;
-    const attacking = this.attack !== null && armOk;
-    const charging = this.isCharging(now) && armOk;
-    if (attacking) {
-      this.executeAttack(now);
-    } else if (charging) {
-      // Telegraph: cock the weapon arm back and up.
+    let driven: PartName[] = [];
+    if (this.attack) {
+      driven = this.executeAttack(now);
+    } else if (this.isCharging(now)) {
       this.driveAngle('upperArmR', -2.1 * f, c.poseGain * 2, c.poseBlend, c.poseMaxVel * 2.4);
       this.driveAngle('lowerArmR', -1.3 * f, c.poseGain * 2, c.poseBlend, c.poseMaxVel * 2.4);
+      driven = ['upperArmR', 'lowerArmR'];
     }
+    const drivenSet = new Set(driven);
 
-    // Drive all remaining (non-broken) segments toward their target pose.
-    const handled = attacking || charging;
+    // Drive all remaining (non-broken) segments toward their target pose. Legs get
+    // dedicated strong steering while walking so they actually reach the step pose.
     for (const p of Object.keys(this.targets) as PartName[]) {
-      if (p === 'torso' || this.isBroken(p)) continue;
-      if (handled && (p === 'upperArmR' || p === 'lowerArmR')) continue; // driven above
+      if (p === 'torso' || this.isBroken(p) || drivenSet.has(p)) continue;
+      const isLeg = p === 'upperLegL' || p === 'lowerLegL' || p === 'upperLegR' || p === 'lowerLegR';
+      const gain = this.walking && isLeg ? c.walkLegGain : c.poseGain;
+      const maxVel = this.walking && isLeg ? c.walkLegMaxVel : c.poseMaxVel;
       const target = this.targets[p] + (p === 'head' ? this.parts.torso.angle : 0);
-      this.driveAngle(p, target, c.poseGain, c.poseBlend, c.poseMaxVel);
+      this.driveAngle(p, target, gain, c.poseBlend, maxVel);
     }
   }
 
@@ -456,6 +521,13 @@ export class Fighter {
 
   legsLost(): number {
     return (this.isBroken('upperLegL') ? 1 : 0) + (this.isBroken('upperLegR') ? 1 : 0);
+  }
+
+  /** 0..1 integrity of the joint holding this part (1 = healthy, used for wound tinting). */
+  limbHealth(part: PartName): number {
+    const j = this.jointByChild.get(part);
+    if (!j) return 1;
+    return j.broken ? 0 : Math.max(0, j.integrity / j.max);
   }
 
   /** Returns the amount of damage actually applied (0 if on cooldown / already broken). */
@@ -487,6 +559,8 @@ export class Fighter {
   private breakJoint(j: Joint): void {
     j.broken = true;
     Composite.remove(this.world, j.constraint);
+    const p = this.parts[j.child].position;
+    this.justBroke.push({ x: p.x, y: p.y });
     // Losing the weapon arm drops the weapon.
     if ((j.child === 'upperArmR' || j.child === 'lowerArmR') && this.weapon) {
       this.dropWeapon(0);

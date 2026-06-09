@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Match, type FxSink } from '../src/game/match';
 import { EMPTY_INPUT } from '../src/core/input';
 
-const noopFx: FxSink = { impact() {}, confetti() {}, shake() {} };
+const noopFx: FxSink = { impact() {}, blood() {}, confetti() {}, shake() {} };
 const STEP = 1000 / 60;
 
 describe('ragdoll sim — Phase 1 core', () => {
