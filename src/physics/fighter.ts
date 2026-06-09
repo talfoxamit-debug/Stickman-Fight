@@ -46,9 +46,12 @@ export class Fighter {
   private prevJump = false;
   private prevAttack = false;
   private jumpReadyAt = 0;
+  private swingStart = 0;
   private swingUntil = 0;
   private swingCooldownUntil = 0;
   private walkPhase = 0;
+  private walking = false;
+  private walkDir = 1;
 
   constructor(
     private world: Matter.World,
@@ -194,9 +197,16 @@ export class Fighter {
       const desired = target * speed;
       const t = this.grounded ? 0.45 : 0.12;
       Body.setVelocity(torso, { x: torso.velocity.x + (desired - torso.velocity.x) * t, y: torso.velocity.y });
-      this.walkPhase += CFG.control.walkBobHz * (CFG.sim.fixedDt / 1000);
     } else if (this.grounded) {
       Body.setVelocity(torso, { x: torso.velocity.x * 0.8, y: torso.velocity.y });
+    }
+
+    // Advance the walk cycle by distance travelled so cadence tracks speed.
+    const vx = torso.velocity.x;
+    this.walking = this.grounded && Math.abs(vx) > CFG.control.walkMinSpeed;
+    if (this.walking) {
+      this.walkDir = Math.sign(vx);
+      this.walkPhase += Math.abs(vx) * CFG.control.strideRate;
     }
 
     // Jump (rising edge, grounded, off cooldown). Launch the WHOLE figure, not just
@@ -229,7 +239,8 @@ export class Fighter {
     // Attack -> start a swing (rising edge, has intact weapon arm + weapon, off cooldown).
     const armOk = !this.isBroken('upperArmR') && !this.isBroken('lowerArmR');
     if (input.attack && !this.prevAttack && this.hasWeapon() && armOk && now >= this.swingCooldownUntil) {
-      this.swingUntil = now + CFG.combat.swingMs;
+      this.swingStart = now;
+      this.swingUntil = now + CFG.combat.swingAnticipateMs + CFG.combat.swingStrikeMs;
       this.swingCooldownUntil = now + CFG.combat.swingCooldownMs;
     }
     this.prevAttack = input.attack;
@@ -237,38 +248,58 @@ export class Fighter {
     this.poseAndDrive(now);
   }
 
-  /** Compute target pose angles and apply PD torques ("active ragdoll"). */
+  /** Compute target pose angles + apply active-ragdoll steering (walk cycle + swing). */
   private poseAndDrive(now: number): void {
+    const c = CFG.control;
     const f = this.facing;
-    const bob = Math.sin(this.walkPhase) * CFG.control.walkBobAmp;
 
-    // Rest pose (absolute world angles; 0 == segment's long axis vertical).
     this.targets.head = 0;
-    this.targets.upperArmL = -0.5 * f - bob * 0.4;
-    this.targets.lowerArmL = -0.7 * f;
-    this.targets.upperLegL = 0.05 + bob;
-    this.targets.lowerLegL = 0.02 + bob * 0.6;
-    this.targets.upperLegR = 0.05 - bob;
-    this.targets.lowerLegR = 0.02 - bob * 0.6;
 
-    // Weapon arm rest pose (when not swinging): weapon held up-and-forward.
-    this.targets.upperArmR = 0.7 * f + bob * 0.4;
+    if (this.walking) {
+      // Procedural walk cycle: opposite-phase leg swing oriented to travel direction,
+      // knees bend on the lifting (back) half so the feet clear the ground.
+      const d = this.walkDir;
+      const s = Math.sin(this.walkPhase) * d;
+      this.targets.upperLegL = c.legSwingAmp * s;
+      this.targets.upperLegR = -c.legSwingAmp * s;
+      this.targets.lowerLegL = 0.05 + c.kneeBendAmp * Math.max(0, -s);
+      this.targets.lowerLegR = 0.05 + c.kneeBendAmp * Math.max(0, s);
+      // Non-weapon arm counter-swings; weapon arm swings the opposite way to it.
+      this.targets.upperArmL = -0.5 * f - c.armSwingAmp * s;
+      this.targets.lowerArmL = -0.7 * f;
+    } else {
+      // Idle stand.
+      this.targets.upperLegL = 0.05;
+      this.targets.upperLegR = 0.05;
+      this.targets.lowerLegL = 0.05;
+      this.targets.lowerLegR = 0.05;
+      this.targets.upperArmL = -0.5 * f;
+      this.targets.lowerArmL = -0.7 * f;
+    }
+
+    // Weapon-arm rest pose (used when not mid-swing): held up-and-forward as a guard.
+    this.targets.upperArmR = 0.7 * f;
     this.targets.lowerArmR = 0.9 * f;
 
-    const c = CFG.control;
     // Torso self-righting (keep upright).
     this.driveAngle('torso', 0, c.rightGain, c.rightBlend, c.rightMaxVel);
 
+    // Weapon arm: 3-phase swing (cock-back -> fast strike), else settle to guard.
+    const elapsed = now - this.swingStart;
     const swinging = now < this.swingUntil;
+    if (swinging && !this.isBroken('upperArmR') && !this.isBroken('lowerArmR')) {
+      const striking = elapsed >= CFG.combat.swingAnticipateMs;
+      const spin = striking ? f * c.swingWhipSpeed : -f * c.swingCockSpeed;
+      this.driveSpin('upperArmR', spin, c.swingBlend);
+      this.driveSpin('lowerArmR', spin * 1.15, c.swingBlend);
+    }
+
+    // Drive all remaining (non-broken) segments toward their target pose.
     for (const p of Object.keys(this.targets) as PartName[]) {
       if (p === 'torso' || this.isBroken(p)) continue;
-      // Whip the weapon arm hard during a swing so the weapon builds real momentum.
-      if (swinging && (p === 'upperArmR' || p === 'lowerArmR')) {
-        this.driveSpin(p, f * c.swingWhipSpeed, c.swingBlend);
-      } else {
-        const target = this.targets[p] + (p === 'head' ? this.parts.torso.angle : 0);
-        this.driveAngle(p, target, c.poseGain, c.poseBlend, c.poseMaxVel);
-      }
+      if (swinging && (p === 'upperArmR' || p === 'lowerArmR')) continue; // driven above
+      const target = this.targets[p] + (p === 'head' ? this.parts.torso.angle : 0);
+      this.driveAngle(p, target, c.poseGain, c.poseBlend, c.poseMaxVel);
     }
   }
 

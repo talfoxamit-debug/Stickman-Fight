@@ -215,6 +215,25 @@ export class Renderer {
     const tipX = body.position.x - ax * half; // business end
     const tipY = body.position.y - ay * half;
 
+    // Swing trail: streak the tip while it's moving fast.
+    const speed = Math.hypot(body.velocity.x, body.velocity.y);
+    w.trail.push({ x: tipX, y: tipY });
+    if (w.trail.length > 8) w.trail.shift();
+    if (speed > 7 && w.trail.length > 1) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = def.glow;
+      for (let i = 1; i < w.trail.length; i++) {
+        ctx.globalAlpha = (i / w.trail.length) * 0.5;
+        ctx.lineWidth = (i / w.trail.length) * def.thick * 1.6;
+        ctx.beginPath();
+        ctx.moveTo(w.trail[i - 1].x, w.trail[i - 1].y);
+        ctx.lineTo(w.trail[i].x, w.trail[i].y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineWidth = def.thick;

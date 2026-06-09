@@ -44,21 +44,27 @@ export const CFG = {
     rightGain: 0.2, // torso self-righting strength
     rightBlend: 0.18,
     rightMaxVel: 0.18,
-    swingWhipSpeed: 1.05, // weapon-arm angular velocity during a swing (=> momentum)
-    swingBlend: 0.5,
+    swingCockSpeed: 0.8, // backswing speed during anticipation
+    swingWhipSpeed: 1.5, // forward strike speed (=> weapon momentum). Faster = snappier
+    swingBlend: 0.55,
     // "Stand support": buoy the torso to standing height while grounded so the
     // figure stands tall on its legs instead of sinking to the floor.
     standHeight: 110, // torso-center height above the floor when standing
     standGain: 0.35,
     standMaxVel: 7,
     standBlend: 0.35,
-    walkBobHz: 6, // leg swing frequency while moving
-    walkBobAmp: 0.35, // radians
+    // Procedural walk cycle (phase advances with travel distance so feet don't slide).
+    strideRate: 0.2, // walk-phase radians per px of horizontal speed
+    legSwingAmp: 0.6, // fore/aft upper-leg swing (radians)
+    kneeBendAmp: 0.7, // knee bend on the lifting half of the step
+    armSwingAmp: 0.5, // arm counter-swing while walking
+    walkMinSpeed: 0.4, // |vx| above which the walk cycle plays
   },
 
   combat: {
-    swingMs: 230,
-    swingCooldownMs: 480,
+    swingAnticipateMs: 75, // quick cock-back "tell"
+    swingStrikeMs: 130, // fast forward strike (the damage window)
+    swingCooldownMs: 380,
     perPartHitCooldownMs: 150,
     // Damage = (impactSpeed - threshold) * scale * weapon/bodyMul.
     impactThreshold: 4.0,

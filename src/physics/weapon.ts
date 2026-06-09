@@ -26,6 +26,7 @@ export interface Weapon {
   body: Matter.Body;
   def: WeaponDef;
   ownerId: number; // fighter id currently owning it, or -1 if loose
+  trail: { x: number; y: number }[]; // recent tip positions for the swing streak
 }
 
 export function createWeapon(
@@ -48,7 +49,7 @@ export function createWeapon(
   Body.setAngle(body, 0);
   const meta: BodyMeta = { fighterId: ownerId, kind: 'weapon' };
   (body as unknown as { meta: BodyMeta }).meta = meta;
-  return { body, def, ownerId };
+  return { body, def, ownerId, trail: [] };
 }
 
 export function setWeaponOwner(weapon: Weapon, ownerId: number, group: number): void {
