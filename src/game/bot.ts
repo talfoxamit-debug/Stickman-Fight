@@ -18,7 +18,7 @@ export class Bot {
     const t = this.clock;
     const mx = me.torsoBody.position.x;
     const my = me.torsoBody.position.y;
-    const input: PlayerInput = { left: false, right: false, jump: false, attack: false, grab: false };
+    const input: PlayerInput = { left: false, right: false, jump: false, attack: false, grab: false, block: false, aimX: null, aimY: null };
     if (me.koed) return input;
 
     // Disarmed: go grab the nearest loose weapon.

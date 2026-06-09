@@ -9,7 +9,7 @@ canvas.width = CFG.view.width;
 canvas.height = CFG.view.height;
 const ctx = canvas.getContext('2d')!;
 
-const input = new Input();
+const input = new Input(canvas);
 const fx = new Fx();
 const match = new Match(fx);
 const renderer = new Renderer(ctx);
@@ -44,6 +44,23 @@ function frame(now: number): void {
   }
 
   renderer.draw(match, fx, paused);
+
+  // P1 aim crosshair (when the mouse is in use).
+  const p1 = input.player(0);
+  if (p1.aimX != null && p1.aimY != null) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0,240,255,0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p1.aimX, p1.aimY, 9, 0, Math.PI * 2);
+    ctx.moveTo(p1.aimX - 14, p1.aimY); ctx.lineTo(p1.aimX - 4, p1.aimY);
+    ctx.moveTo(p1.aimX + 4, p1.aimY); ctx.lineTo(p1.aimX + 14, p1.aimY);
+    ctx.moveTo(p1.aimX, p1.aimY - 14); ctx.lineTo(p1.aimX, p1.aimY - 4);
+    ctx.moveTo(p1.aimX, p1.aimY + 4); ctx.lineTo(p1.aimX, p1.aimY + 14);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   input.endFrame();
   requestAnimationFrame(frame);
 }

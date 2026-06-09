@@ -43,10 +43,10 @@ sim tests), `npm run preview` (serve the build).
 
 ### Controls
 
-| | Move | Jump | Attack | Grab / Throw |
-|--|--|--|--|--|
-| **P1** | `A` / `D` | `W` | `F` | `G` |
-| **P2** | `←` / `→` | `↑` | `.` | `/` |
+| | Move | Jump (×2) | Attack | Block | Grab | Dodge | Aim |
+|--|--|--|--|--|--|--|--|
+| **P1** | `A`/`D` | `W` | `F` or **LMB** | `S` or **RMB** | `G` | double-tap `A`/`D` | **mouse** |
+| **P2** | `←`/`→` | `↑` | `.` | `↓` | `/` | double-tap `←`/`→` | — |
 
 Global: **`B`** toggle P2 bot (play solo) · **`R`** rematch · **`P`** pause.
 
@@ -55,6 +55,14 @@ Global: **`B`** toggle P2 bot (play solo) · **`R`** rematch · **`P`** pause.
   Keep tapping within the combo window to chain it.
 - **Hold = heavy** → a telegraphed wind-up, then a big **overhead smash** with knockback
   and ~1.85× damage. Release to unleash.
+- **Disarmed?** Attacks fall back to **punches and kicks** automatically.
+
+**Mobility & defense:**
+- **Double jump** + variable height (tap = short hop, hold = full jump) + coyote time.
+- **Dodge roll** (double-tap a direction): a fast dash with **i-frames** (brief invulnerability).
+- **Block** (hold): cuts damage/knockback from the front; a **well-timed block parries** —
+  it negates the hit and **staggers** the attacker. Mouse players: aim with the cursor,
+  **left-click** to attack, **right-click** to block.
 
 > **Tip — limb tactics:** smash an arm to disarm your opponent (the weapon drops — grab
 > it!), break both legs to cripple their movement, or land sustained head hits for a

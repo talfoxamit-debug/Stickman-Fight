@@ -73,7 +73,6 @@ export class Fighter {
   private lastHit = {} as Record<PartName, number>;
   private prevJump = false;
   private prevAttack = false;
-  private jumpReadyAt = 0;
   private attack: ActiveAttack | null = null;
   private comboStep = 0;
   private comboResetAt = 0;
@@ -83,6 +82,22 @@ export class Fighter {
   private walkPhase = 0;
   private walking = false;
   private walkDir = 1;
+  // Mobility / defense.
+  blocking = false;
+  manualFacing = false;
+  private blockStart = 0;
+  private dodgeUntil = 0;
+  private dodgeCooldownUntil = 0;
+  private dodgeDir = 1;
+  private lastTapDir = 0;
+  private lastTapAt = -9999;
+  private prevLeft = false;
+  private prevRight = false;
+  private airJumps = 0;
+  private lastGroundedAt = 0;
+  private jumpBufferedAt = -9999;
+  private jumpingUp = false;
+  private staggerUntil = 0;
 
   constructor(
     private world: Matter.World,
@@ -218,57 +233,154 @@ export class Fighter {
   applyControl(now: number, input: PlayerInput): void {
     if (this.koed) return;
     const torso = this.parts.torso;
+    const C = CFG.control;
 
-    // Horizontal movement (steer the torso; momentum/knockback still applies).
-    const legsLost = this.legsLost();
-    let target = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    if (target !== 0) {
-      let speed = CFG.control.runSpeed * (legsLost >= 2 ? CFG.control.crippleSpeedMul : 1);
-      if (!this.grounded) speed *= CFG.control.airControl + 0.65;
-      const desired = target * speed;
-      const t = this.grounded ? 0.45 : 0.12;
-      Body.setVelocity(torso, { x: torso.velocity.x + (desired - torso.velocity.x) * t, y: torso.velocity.y });
-    } else if (this.grounded) {
-      Body.setVelocity(torso, { x: torso.velocity.x * 0.8, y: torso.velocity.y });
+    if (this.grounded) {
+      this.lastGroundedAt = now;
+      this.airJumps = C.doubleJump ? 1 : 0;
     }
 
-    // Advance the walk cycle by distance travelled so cadence tracks speed.
+    // Staggered (just got parried): briefly stunned, no control.
+    if (now < this.staggerUntil) {
+      this.prevJump = input.jump;
+      this.prevAttack = input.attack;
+      this.poseAndDrive(now);
+      return;
+    }
+
+    const legsLost = this.legsLost();
+
+    // Aim: mouse cursor sets facing for P1; otherwise Match faces the opponent.
+    this.manualFacing = false;
+    if (input.aimX != null) {
+      this.facing = input.aimX >= torso.position.x ? 1 : -1;
+      this.manualFacing = true;
+    }
+
+    // Dodge roll: double-tap a direction.
+    const leftEdge = input.left && !this.prevLeft;
+    const rightEdge = input.right && !this.prevRight;
+    if (now >= this.dodgeCooldownUntil && legsLost < 2) {
+      if (leftEdge) this.tryDodge(now, -1);
+      if (rightEdge) this.tryDodge(now, 1);
+    }
+    this.prevLeft = input.left;
+    this.prevRight = input.right;
+    const dodging = now < this.dodgeUntil;
+
+    // Block / guard (grounded, not dodging or mid-attack).
+    const wantBlock = input.block && this.grounded && !dodging && this.attack === null && legsLost < 2;
+    if (wantBlock && !this.blocking) this.blockStart = now;
+    this.blocking = wantBlock;
+
+    // Horizontal movement.
+    if (dodging) {
+      Body.setVelocity(torso, { x: this.dodgeDir * C.dodgeSpeed, y: torso.velocity.y });
+    } else {
+      const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      let speed = C.runSpeed * (legsLost >= 2 ? C.crippleSpeedMul : 1);
+      if (this.blocking) speed *= C.blockMoveMul;
+      if (!this.grounded) speed *= C.airControl + 0.65;
+      if (dir !== 0) {
+        const desired = dir * speed;
+        const t = this.grounded ? 0.45 : 0.12;
+        Body.setVelocity(torso, { x: torso.velocity.x + (desired - torso.velocity.x) * t, y: torso.velocity.y });
+      } else if (this.grounded) {
+        Body.setVelocity(torso, { x: torso.velocity.x * 0.8, y: torso.velocity.y });
+      }
+    }
+
+    // Walk cycle.
     const vx = torso.velocity.x;
-    this.walking = this.grounded && Math.abs(vx) > CFG.control.walkMinSpeed;
+    this.walking = this.grounded && !dodging && Math.abs(vx) > C.walkMinSpeed;
     if (this.walking) {
       this.walkDir = Math.sign(vx);
-      this.walkPhase += Math.abs(vx) * CFG.control.strideRate;
+      this.walkPhase += Math.abs(vx) * C.strideRate;
     }
 
-    // Jump (rising edge, grounded, off cooldown). Launch the WHOLE figure, not just
-    // the torso, or the grounded limbs hold it down via the joints.
-    if (input.jump && !this.prevJump && this.grounded && legsLost < 2 && now >= this.jumpReadyAt) {
-      for (const p of Object.keys(this.parts) as PartName[]) {
-        if (this.isBroken(p)) continue;
-        const b = this.parts[p];
-        Body.setVelocity(b, { x: b.velocity.x, y: -CFG.control.jumpSpeed });
+    // Jump: buffer + coyote time + double jump + variable height.
+    if (input.jump && !this.prevJump) this.jumpBufferedAt = now;
+    const buffered = now - this.jumpBufferedAt <= C.jumpBufferMs;
+    const coyote = now - this.lastGroundedAt <= C.coyoteMs;
+    if (buffered && legsLost < 2 && !dodging) {
+      if (this.grounded || coyote) {
+        this.doJump(C.jumpSpeed);
+        this.jumpBufferedAt = -9999;
+        this.lastGroundedAt = -9999;
+        this.jumpingUp = true;
+      } else if (this.airJumps > 0) {
+        this.doJump(C.airJumpSpeed);
+        this.airJumps--;
+        this.jumpBufferedAt = -9999;
+        this.jumpingUp = true;
       }
-      this.grounded = false;
-      this.jumpReadyAt = now + 320;
     }
+    if (this.jumpingUp && !input.jump && torso.velocity.y < 0) {
+      Body.setVelocity(torso, { x: torso.velocity.x, y: torso.velocity.y * C.jumpCutMul });
+      this.jumpingUp = false;
+    }
+    if (torso.velocity.y >= 0) this.jumpingUp = false;
     this.prevJump = input.jump;
 
-    // Stand support: while grounded (and with legs), buoy the torso up to standing
-    // height. Only ever pushes UP (never yanks down), so jumps/launches are unaffected.
-    if (this.grounded && legsLost < 2 && torso.velocity.y > -2) {
-      const targetY = CFG.arena.floorY - CFG.control.standHeight;
+    // Stand support (skipped during a dodge).
+    if (!dodging && this.grounded && legsLost < 2 && torso.velocity.y > -2) {
+      const targetY = CFG.arena.floorY - C.standHeight;
       const err = targetY - torso.position.y;
       if (err < -2) {
-        const desiredVy = clamp(err * CFG.control.standGain, -CFG.control.standMaxVel, 0);
+        const desiredVy = clamp(err * C.standGain, -C.standMaxVel, 0);
         Body.setVelocity(torso, {
           x: torso.velocity.x,
-          y: torso.velocity.y + (desiredVy - torso.velocity.y) * CFG.control.standBlend,
+          y: torso.velocity.y + (desiredVy - torso.velocity.y) * C.standBlend,
         });
       }
     }
 
-    this.handleAttackInput(now, input);
+    // Attacks are locked out while blocking or dodging.
+    if (!this.blocking && !dodging) this.handleAttackInput(now, input);
+    else this.prevAttack = input.attack;
+
     this.poseAndDrive(now);
+  }
+
+  private doJump(speed: number): void {
+    for (const p of Object.keys(this.parts) as PartName[]) {
+      if (this.isBroken(p)) continue;
+      const b = this.parts[p];
+      Body.setVelocity(b, { x: b.velocity.x, y: -speed });
+    }
+    this.grounded = false;
+  }
+
+  private tryDodge(now: number, dir: number): void {
+    if (this.lastTapDir === dir && now - this.lastTapAt <= CFG.control.doubleTapMs) {
+      this.dodgeDir = dir;
+      this.dodgeUntil = now + CFG.control.dodgeMs;
+      this.dodgeCooldownUntil = now + CFG.control.dodgeCooldownMs;
+      this.lastTapDir = 0;
+      this.lastTapAt = -9999;
+      const t = this.parts.torso;
+      Body.setVelocity(t, { x: dir * CFG.control.dodgeSpeed, y: Math.min(t.velocity.y, -2.5) });
+    } else {
+      this.lastTapDir = dir;
+      this.lastTapAt = now;
+    }
+  }
+
+  // ---- defense queries (for the damage system) ----------------------------
+
+  isDodging(now: number): boolean {
+    return now < this.dodgeUntil;
+  }
+  isBlocking(): boolean {
+    return this.blocking;
+  }
+  blockAge(now: number): number {
+    return now - this.blockStart;
+  }
+  stagger(now: number, ms: number): void {
+    this.staggerUntil = Math.max(this.staggerUntil, now + ms);
+    this.attack = null;
+    this.blocking = false;
   }
 
   // ---- attacks ------------------------------------------------------------
@@ -445,6 +557,17 @@ export class Fighter {
 
     this.targets.head = 0;
 
+    // Dodge roll: lean hard into the dash and curl up; no upright righting.
+    if (now < this.dodgeUntil) {
+      this.driveAngle('torso', this.dodgeDir * c.dodgeLean, c.rightGain * 2.5, c.rightBlend, c.rightMaxVel * 3);
+      const tilt = this.parts.torso.angle;
+      for (const p of Object.keys(this.targets) as PartName[]) {
+        if (p === 'torso' || this.isBroken(p)) continue;
+        this.driveAngle(p, tilt, c.poseGain * 2.2, c.poseBlend, c.poseMaxVel * 2.2);
+      }
+      return;
+    }
+
     if (this.walking) {
       // Procedural walk cycle: opposite-phase leg swing oriented to travel direction,
       // knees bend on the lifting (back) half so the feet clear the ground.
@@ -471,6 +594,14 @@ export class Fighter {
     this.targets.upperArmR = 0.7 * f;
     this.targets.lowerArmR = 0.9 * f;
 
+    // Block: raise both forearms across the front into a guard.
+    if (this.blocking) {
+      this.targets.upperArmR = -0.35 * f;
+      this.targets.lowerArmR = -1.4 * f;
+      this.targets.upperArmL = -0.35 * f;
+      this.targets.lowerArmL = -1.25 * f;
+    }
+
     // Torso self-righting (keep upright).
     this.driveAngle('torso', 0, c.rightGain, c.rightBlend, c.rightMaxVel);
 
@@ -480,7 +611,7 @@ export class Fighter {
     let driven: PartName[] = [];
     if (this.attack) {
       driven = this.executeAttack(now);
-    } else if (this.isCharging(now)) {
+    } else if (!this.blocking && this.isCharging(now)) {
       this.driveAngle('upperArmR', -2.1 * f, c.poseGain * 2, c.poseBlend, c.poseMaxVel * 2.4);
       this.driveAngle('lowerArmR', -1.3 * f, c.poseGain * 2, c.poseBlend, c.poseMaxVel * 2.4);
       driven = ['upperArmR', 'lowerArmR'];
@@ -533,6 +664,7 @@ export class Fighter {
   /** Returns the amount of damage actually applied (0 if on cooldown / already broken). */
   damagePart(part: PartName, amount: number, now: number): number {
     if (this.koed || amount <= 0) return 0;
+    if (now < this.dodgeUntil) return 0; // i-frames while dodging
     if (now - this.lastHit[part] < CFG.combat.perPartHitCooldownMs) return 0;
     this.lastHit[part] = now;
 

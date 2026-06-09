@@ -10,7 +10,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.5 · stepping + unarmed + blood + arena';
+const VERSION = 'v0.6 · mouse aim + block/parry + dodge + better jump';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -193,6 +193,23 @@ export class Renderer {
     }
     this.head(ctx, f);
     if (f.weapon) this.weapon(ctx, f.weapon, true);
+
+    // Block guard shimmer: a glowing shield arc in front of the fighter.
+    if (f.isBlocking()) {
+      const t = f.torsoBody;
+      ctx.save();
+      ctx.strokeStyle = '#bfe9ff';
+      ctx.shadowColor = '#7fd4ff';
+      ctx.shadowBlur = 16;
+      ctx.lineWidth = 4;
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      const a0 = f.facing === 1 ? -1.1 : Math.PI + 1.1;
+      const a1 = f.facing === 1 ? 1.1 : Math.PI - 1.1;
+      ctx.arc(t.position.x + f.facing * 16, t.position.y, 34, Math.min(a0, a1), Math.max(a0, a1));
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   private segment(ctx: CanvasRenderingContext2D, f: Fighter, part: PartName): void {

@@ -205,6 +205,30 @@ export class Match {
     }
 
     const fighter = this.fighters[tMeta.fighterId];
+
+    // Defense: a guard from the front reduces damage; a well-timed guard parries.
+    if (fighter.isBlocking()) {
+      const fromFront = Math.sign(other.position.x - fighter.torsoBody.position.x) === fighter.facing;
+      if (fromFront) {
+        if (fighter.blockAge(now) <= CFG.combat.parryWindowMs) {
+          const attacker = oMeta.fighterId >= 0 ? this.fighters[oMeta.fighterId] : null;
+          if (attacker) {
+            attacker.stagger(now, CFG.combat.parryStunMs);
+            this.applyKnockback(attacker, fighter.torsoBody, 7);
+          }
+          const px = fighter.torsoBody.position.x;
+          const py = fighter.torsoBody.position.y - 18;
+          this.fx.impact(px, py, 18, '#ffffff');
+          this.fx.shake(11);
+          this.hitstopSteps = Math.max(this.hitstopSteps, 5);
+          return; // parried: no damage
+        }
+        dmg *= CFG.combat.blockDamageMul;
+        knock *= CFG.combat.blockKnockMul;
+        this.fx.impact(other.position.x, other.position.y, 10, '#bfe9ff'); // guard spark
+      }
+    }
+
     const applied = fighter.damagePart(tMeta.part, dmg, now);
     if (applied > 0) {
       if (knock > 0) this.applyKnockback(fighter, other, knock);
@@ -296,8 +320,8 @@ export class Match {
 
   private faceOpponents(): void {
     const [a, b] = this.fighters;
-    if (!a.koed) a.facing = b.torsoBody.position.x >= a.torsoBody.position.x ? 1 : -1;
-    if (!b.koed) b.facing = a.torsoBody.position.x >= b.torsoBody.position.x ? 1 : -1;
+    if (!a.koed && !a.manualFacing) a.facing = b.torsoBody.position.x >= a.torsoBody.position.x ? 1 : -1;
+    if (!b.koed && !b.manualFacing) b.facing = a.torsoBody.position.x >= b.torsoBody.position.x ? 1 : -1;
   }
 
   private checkRingOut(): void {

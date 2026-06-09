@@ -42,6 +42,20 @@ export const CFG = {
     airControl: 0.55, // fraction of run speed usable in the air
     jumpSpeed: 13.5, // upward velocity on jump
     crippleSpeedMul: 0.45, // movement penalty when both legs are gone
+    // Jump feel.
+    doubleJump: true,
+    coyoteMs: 110, // grace period to still jump just after leaving the ground
+    jumpBufferMs: 130, // press jump slightly before landing and it still fires
+    jumpCutMul: 0.45, // release jump early => cut upward velocity (variable height)
+    airJumpSpeed: 12.5, // velocity of the mid-air (double) jump
+    // Dodge roll (double-tap a direction).
+    dodgeSpeed: 15, // horizontal burst speed
+    dodgeMs: 240, // dash + i-frame duration
+    dodgeCooldownMs: 520,
+    doubleTapMs: 270, // max gap between taps to trigger a dodge
+    dodgeLean: 0.7, // torso lean (radians) into the roll
+    // Block.
+    blockMoveMul: 0.35, // movement slowed while guarding
     // "Active ragdoll" posing via direct, clamped angular-velocity steering.
     // Each limb is gently nudged toward a target orientation; stable + predictable.
     poseGain: 0.16, // commanded angular velocity per radian of error
@@ -77,6 +91,11 @@ export const CFG = {
     bodyMul: 0.8,
     maxHitDamage: 34, // base per-hit cap (before the per-attack dmgMul)
     coreDamageFrac: 0.6, // fraction of a torso/head hit that drains core HP
+    // Defense.
+    blockDamageMul: 0.18, // damage taken while guarding (from the front)
+    blockKnockMul: 0.3, // knockback taken while guarding
+    parryWindowMs: 170, // block within this of an incoming hit => parry
+    parryStunMs: 650, // attacker is staggered this long on a parry
 
     // Moveset. A slash/heavy rotates the whole arm+weapon rigidly about the shoulder
     // (constraint-consistent => a real fast whip); a stab thrusts the weapon forward.
