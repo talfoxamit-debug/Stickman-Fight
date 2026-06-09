@@ -21,7 +21,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.24 · visual polish — world parallax sky, dimmed effigy';
+const VERSION = 'v0.25 · cave lighting + verified all modes';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -86,13 +86,22 @@ export class Renderer {
   drawWorld(world: World, fx: Fx): void {
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    // Sky.
-    const sky = ctx.createLinearGradient(0, 0, 0, H);
-    sky.addColorStop(0, '#6db3e8');
-    sky.addColorStop(1, '#274a63');
-    ctx.fillStyle = sky;
+    // Background: sky near the surface, fading to dark cave rock as you descend.
+    const surfaceY = world.grid.rows * 0.32 * world.grid.cell;
+    const dep = Math.max(0, Math.min(1, (world.camera.y - surfaceY) / (world.grid.heightPx * 0.32)));
+    ctx.fillStyle = '#191118'; // dark cave backdrop
     ctx.fillRect(0, 0, W, H);
-    this.worldBackground(ctx, world);
+    if (dep < 1) {
+      ctx.save();
+      ctx.globalAlpha = 1 - dep;
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, '#6db3e8');
+      sky.addColorStop(1, '#274a63');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, H);
+      if (dep < 0.55) { ctx.globalAlpha = 1 - dep / 0.55; this.worldBackground(ctx, world); }
+      ctx.restore();
+    }
 
     ctx.save();
     ctx.translate(W / 2, H / 2);
@@ -105,10 +114,14 @@ export class Renderer {
     fx.draw(ctx);
     ctx.restore();
 
-    // Depth darkening (bright at the surface, dark deep underground).
-    const surfaceY = world.grid.rows * 0.32 * world.grid.cell;
-    const depth = Math.max(0, Math.min(0.82, (world.camera.y - surfaceY) / (world.grid.heightPx * 0.35)));
-    if (depth > 0.02) { ctx.fillStyle = `rgba(2,4,10,${depth})`; ctx.fillRect(0, 0, W, H); }
+    // Underground "torch": a lit radius around the player, darkness beyond.
+    if (dep > 0.12) {
+      const g = ctx.createRadialGradient(W / 2, H / 2, 70, W / 2, H / 2, 540);
+      g.addColorStop(0, 'rgba(0,0,0,0)');
+      g.addColorStop(1, `rgba(3,2,8,${Math.min(0.88, 0.45 + dep * 0.5)})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    }
 
     this.worldHud(ctx, world);
     if (world.crafting) this.craftPanel(ctx, world);
