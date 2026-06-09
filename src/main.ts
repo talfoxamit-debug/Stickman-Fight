@@ -81,13 +81,18 @@ function frame(now: number): void {
     if (input.consumePressed('KeyM') || input.consumePressed('Escape')) { world = null; screen = 'menu'; }
     else {
       if (input.consumePressed('KeyP')) paused = !paused;
-      if (input.consumePressed('KeyZ')) {
-        const e = EVOLUTIONS[(EVOLUTIONS.indexOf(world.player.evolution) + 1) % EVOLUTIONS.length];
-        world.player.evolution = e;
-        evoLabel = e;
+      if (input.consumePressed('KeyE')) world.crafting = !world.crafting;
+      if (world.crafting) {
+        for (let i = 0; i < world.craftDefs.length; i++) if (input.consumePressed(`Digit${i + 1}`)) world.craft(i);
+      } else {
+        if (input.consumePressed('KeyZ')) {
+          const e = EVOLUTIONS[(EVOLUTIONS.indexOf(world.player.evolution) + 1) % EVOLUTIONS.length];
+          world.player.evolution = e;
+          evoLabel = e;
+        }
+        const w = world;
+        stepFixed(dtReal, () => w.step(simTime, input.player(0)));
       }
-      const w = world;
-      stepFixed(dtReal, () => w.step(simTime, input.player(0)));
     }
     if (world) { renderer.drawWorld(world, fx); drawCrosshair(); }
     else { renderer.draw(match, fx, paused); drawMenu(); }

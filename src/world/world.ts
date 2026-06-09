@@ -33,6 +33,8 @@ export class World {
   kills = 0;
   loot = 0;
   message = '';
+  crafting = false;
+  upgrades = { hp: 0, dmg: 0, spd: 0, wpn: 0 };
   private messageUntil = 0;
 
   private digCdUntil = 0;
@@ -144,6 +146,7 @@ export class World {
     this.player.destroy();
     this.byId.delete(0);
     this.player = this.makeFighter(0, this.grid.spawnX, this.grid.spawnY, 1, '#22e3ff', '#aef9ff', 'YOU', 0, CFG.health.core, evo);
+    this.applyPlayerUpgrades();
     this.playerDeadAt = 0;
   }
 
@@ -221,6 +224,54 @@ export class World {
       if (sp > maxV) Body.setVelocity(bdy, { x: (bdy.velocity.x / sp) * maxV, y: (bdy.velocity.y / sp) * maxV });
       if (Math.abs(bdy.angularVelocity) > maxW) Body.setAngularVelocity(bdy, Math.sign(bdy.angularVelocity) * maxW);
     }
+  }
+
+  // ---- crafting / progression ---------------------------------------------
+
+  craftDefs: { name: string; desc: string }[] = [
+    { name: 'Reinforce', desc: '+30 max health' },
+    { name: 'Sharpen', desc: '+20% damage' },
+    { name: 'Swift Boots', desc: '+12% move speed' },
+    { name: 'Forge Blade', desc: '+15% damage' },
+  ];
+
+  craftCost(i: number): { loot: number; mats: [Mat, number][] } {
+    const u = this.upgrades;
+    if (i === 0) return { loot: 18 + u.hp * 12, mats: [[Mat.Stone, 4]] };
+    if (i === 1) return { loot: 16 + u.dmg * 12, mats: [[Mat.Ore, 2]] };
+    if (i === 2) return { loot: 14 + u.spd * 12, mats: [[Mat.Wood, 4]] };
+    return { loot: 12 + u.wpn * 15, mats: [[Mat.Wood, 6], [Mat.Stone, 6], [Mat.Ore, 3]] };
+  }
+
+  canCraft(i: number): boolean {
+    const c = this.craftCost(i);
+    if (this.loot < c.loot) return false;
+    for (const [m, n] of c.mats) if ((this.inventory.get(m) ?? 0) < n) return false;
+    return true;
+  }
+
+  craft(i: number): boolean {
+    if (!this.canCraft(i)) { this.fx.sound('ui'); return false; }
+    const c = this.craftCost(i);
+    this.loot -= c.loot;
+    for (const [m, n] of c.mats) this.inventory.set(m, (this.inventory.get(m) ?? 0) - n);
+    if (i === 0) this.upgrades.hp++;
+    else if (i === 1) this.upgrades.dmg++;
+    else if (i === 2) this.upgrades.spd++;
+    else this.upgrades.wpn++;
+    this.applyPlayerUpgrades();
+    this.fx.sound('parry');
+    return true;
+  }
+
+  private applyPlayerUpgrades(): void {
+    const u = this.upgrades;
+    const newMax = CFG.health.core + u.hp * 30;
+    const ratio = this.player.maxCore > 0 ? this.player.coreHealth / this.player.maxCore : 1;
+    this.player.maxCore = newMax;
+    this.player.coreHealth = Math.min(newMax, newMax * ratio + (u.hp ? 30 : 0));
+    this.player.damageMul = 1 + u.dmg * 0.2 + u.wpn * 0.15;
+    this.player.speedMul = 1 + u.spd * 0.12;
   }
 
   /** Depth below the surface in tiles (for the HUD). */

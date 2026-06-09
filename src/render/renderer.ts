@@ -21,7 +21,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.21 · sound! procedural SFX (hits/swing/boom/parry/dig…) · N mutes';
+const VERSION = 'v0.22 · world crafting loop — forge/upgrade from loot + materials';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -109,10 +109,37 @@ export class Renderer {
     if (depth > 0.02) { ctx.fillStyle = `rgba(2,4,10,${depth})`; ctx.fillRect(0, 0, W, H); }
 
     this.worldHud(ctx, world);
+    if (world.crafting) this.craftPanel(ctx, world);
     ctx.textAlign = 'left';
     ctx.font = 'bold 12px ui-monospace, monospace';
     ctx.fillStyle = 'rgba(124,255,90,0.7)';
     ctx.fillText(VERSION, 12, H - 10);
+  }
+
+  private craftPanel(ctx: CanvasRenderingContext2D, world: World): void {
+    ctx.fillStyle = 'rgba(8,6,16,0.8)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = '#ff37c8'; ctx.shadowBlur = 22;
+    ctx.font = 'bold 36px ui-monospace, monospace';
+    ctx.fillText('FORGE / UPGRADE', W / 2, 150);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ffcf4d';
+    ctx.font = 'bold 18px ui-monospace, monospace';
+    ctx.fillText(`loot: ${world.loot}`, W / 2, 188);
+    ctx.font = '16px ui-monospace, monospace';
+    for (let i = 0; i < world.craftDefs.length; i++) {
+      const d = world.craftDefs[i];
+      const c = world.craftCost(i);
+      const matStr = c.mats.map(([m, n]) => `${n} ${MATERIALS[m].name}`).join(', ');
+      const ok = world.canCraft(i);
+      ctx.fillStyle = ok ? '#7cff5a' : '#6a6a7a';
+      ctx.fillText(`[${i + 1}] ${d.name} — ${d.desc} — ${c.loot} loot + ${matStr}`, W / 2, 240 + i * 32);
+    }
+    ctx.fillStyle = '#cbb8ff';
+    ctx.font = '14px ui-monospace, monospace';
+    ctx.fillText('press 1-4 to craft · E to close', W / 2, 240 + world.craftDefs.length * 32 + 16);
   }
 
   private terrain(ctx: CanvasRenderingContext2D, world: World): void {
@@ -180,7 +207,7 @@ export class Renderer {
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.font = '13px ui-monospace, monospace';
-    ctx.fillText('A/D move · W jump (×2) · F/LMB attack & mine · grab/throw G · Z evolve · M menu', W / 2, H - 14);
+    ctx.fillText('A/D move · W jump (×2) · F/LMB attack & mine · E forge/upgrade · Z evolve · N mute · M menu', W / 2, H - 14);
   }
 
   // ---- arena --------------------------------------------------------------
