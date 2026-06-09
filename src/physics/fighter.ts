@@ -199,13 +199,32 @@ export class Fighter {
       Body.setVelocity(torso, { x: torso.velocity.x * 0.8, y: torso.velocity.y });
     }
 
-    // Jump (rising edge, grounded, off cooldown).
+    // Jump (rising edge, grounded, off cooldown). Launch the WHOLE figure, not just
+    // the torso, or the grounded limbs hold it down via the joints.
     if (input.jump && !this.prevJump && this.grounded && legsLost < 2 && now >= this.jumpReadyAt) {
-      Body.setVelocity(torso, { x: torso.velocity.x, y: -CFG.control.jumpSpeed });
+      for (const p of Object.keys(this.parts) as PartName[]) {
+        if (this.isBroken(p)) continue;
+        const b = this.parts[p];
+        Body.setVelocity(b, { x: b.velocity.x, y: -CFG.control.jumpSpeed });
+      }
       this.grounded = false;
       this.jumpReadyAt = now + 320;
     }
     this.prevJump = input.jump;
+
+    // Stand support: while grounded (and with legs), buoy the torso up to standing
+    // height. Only ever pushes UP (never yanks down), so jumps/launches are unaffected.
+    if (this.grounded && legsLost < 2 && torso.velocity.y > -2) {
+      const targetY = CFG.arena.floorY - CFG.control.standHeight;
+      const err = targetY - torso.position.y;
+      if (err < -2) {
+        const desiredVy = clamp(err * CFG.control.standGain, -CFG.control.standMaxVel, 0);
+        Body.setVelocity(torso, {
+          x: torso.velocity.x,
+          y: torso.velocity.y + (desiredVy - torso.velocity.y) * CFG.control.standBlend,
+        });
+      }
+    }
 
     // Attack -> start a swing (rising edge, has intact weapon arm + weapon, off cooldown).
     const armOk = !this.isBroken('upperArmR') && !this.isBroken('lowerArmR');
@@ -232,36 +251,44 @@ export class Fighter {
     this.targets.upperLegR = 0.05 - bob;
     this.targets.lowerLegR = 0.02 - bob * 0.6;
 
-    // Weapon arm: rest holds the weapon up-and-forward; swing sweeps a fast arc.
-    if (now < this.swingUntil) {
-      const k = 1 - (this.swingUntil - now) / CFG.combat.swingMs; // 0..1 progress
-      // Sweep from cocked-back (overhead) to follow-through (down-forward).
-      this.targets.upperArmR = (-2.3 + 3.3 * k) * f;
-      this.targets.lowerArmR = (-1.6 + 2.6 * k) * f;
-    } else {
-      this.targets.upperArmR = 0.7 * f + bob * 0.4;
-      this.targets.lowerArmR = 0.9 * f;
-    }
+    // Weapon arm rest pose (when not swinging): weapon held up-and-forward.
+    this.targets.upperArmR = 0.7 * f + bob * 0.4;
+    this.targets.lowerArmR = 0.9 * f;
 
     const c = CFG.control;
     // Torso self-righting (keep upright).
-    this.driveAngle('torso', 0, c.rightingKp, c.rightingKd);
+    this.driveAngle('torso', 0, c.rightGain, c.rightBlend, c.rightMaxVel);
 
     const swinging = now < this.swingUntil;
     for (const p of Object.keys(this.targets) as PartName[]) {
       if (p === 'torso' || this.isBroken(p)) continue;
-      // Drive the swinging arm harder so the weapon builds real momentum.
-      const boost = swinging && (p === 'upperArmR' || p === 'lowerArmR') ? 3.2 : 1;
-      this.driveAngle(p, this.targets[p] + (p === 'head' ? this.parts.torso.angle : 0), c.limbKp * boost, c.limbKd);
+      // Whip the weapon arm hard during a swing so the weapon builds real momentum.
+      if (swinging && (p === 'upperArmR' || p === 'lowerArmR')) {
+        this.driveSpin(p, f * c.swingWhipSpeed, c.swingBlend);
+      } else {
+        const target = this.targets[p] + (p === 'head' ? this.parts.torso.angle : 0);
+        this.driveAngle(p, target, c.poseGain, c.poseBlend, c.poseMaxVel);
+      }
     }
   }
 
-  private driveAngle(part: PartName, target: number, kp: number, kd: number): void {
+  /** Steer a segment's angular velocity directly toward `vel` (for fast swings). */
+  private driveSpin(part: PartName, vel: number, blend: number): void {
+    const body = this.parts[part];
+    Body.setAngularVelocity(body, body.angularVelocity + (vel - body.angularVelocity) * blend);
+  }
+
+  /**
+   * Stable "active ragdoll" steering: command an angular velocity proportional to the
+   * orientation error (capped), then blend the body's current angular velocity toward
+   * it. No torque/inertia/dt coupling, so it can't explode into wobble.
+   */
+  private driveAngle(part: PartName, target: number, gain: number, blend: number, maxVel: number): void {
     const body = this.parts[part];
     const err = angleDiff(body.angle, target);
-    let acc = kp * err - kd * body.angularVelocity;
-    acc = clamp(acc, -CFG.control.maxAngAccel, CFG.control.maxAngAccel);
-    body.torque += acc * body.inertia;
+    const commanded = clamp(err * gain, -maxVel, maxVel);
+    const next = body.angularVelocity + (commanded - body.angularVelocity) * blend;
+    Body.setAngularVelocity(body, next);
   }
 
   // ---- damage / breaking --------------------------------------------------

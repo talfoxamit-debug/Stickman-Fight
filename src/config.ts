@@ -36,14 +36,24 @@ export const CFG = {
     airControl: 0.35, // fraction of run speed usable in the air
     jumpSpeed: 12.5, // upward velocity on jump
     crippleSpeedMul: 0.45, // movement penalty when both legs are gone
-    // PD gains for "active ragdoll" posing (normalized by inertia internally).
-    rightingKp: 0.12,
-    rightingKd: 0.03,
-    limbKp: 0.06,
-    limbKd: 0.007,
-    maxAngAccel: 0.08, // clamp on PD output (rad/step^2-ish)
+    // "Active ragdoll" posing via direct, clamped angular-velocity steering.
+    // Each limb is gently nudged toward a target orientation; stable + predictable.
+    poseGain: 0.16, // commanded angular velocity per radian of error
+    poseBlend: 0.18, // how hard we steer toward the commanded velocity (0..1)
+    poseMaxVel: 0.16, // cap on commanded angular velocity (rad/step)
+    rightGain: 0.2, // torso self-righting strength
+    rightBlend: 0.18,
+    rightMaxVel: 0.18,
+    swingWhipSpeed: 1.05, // weapon-arm angular velocity during a swing (=> momentum)
+    swingBlend: 0.5,
+    // "Stand support": buoy the torso to standing height while grounded so the
+    // figure stands tall on its legs instead of sinking to the floor.
+    standHeight: 110, // torso-center height above the floor when standing
+    standGain: 0.35,
+    standMaxVel: 7,
+    standBlend: 0.35,
     walkBobHz: 6, // leg swing frequency while moving
-    walkBobAmp: 0.5, // radians
+    walkBobAmp: 0.35, // radians
   },
 
   combat: {
