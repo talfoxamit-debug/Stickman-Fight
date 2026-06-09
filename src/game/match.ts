@@ -289,6 +289,9 @@ export class Match {
         } else if (m === Mat.Water) {
           // Buoyancy + drag (float, slowed).
           Body.setVelocity(b, { x: b.velocity.x * 0.9, y: b.velocity.y * 0.86 - 0.5 });
+        } else if (m === Mat.Steam) {
+          // Steam vents launch you upward.
+          Body.setVelocity(b, { x: b.velocity.x, y: b.velocity.y - 1.2 });
         }
         // Displace very light materials the body wades through.
         g.carvePx(b.position.x - 8, b.position.y - 8, b.position.x + 8, b.position.y + 8);
