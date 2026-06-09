@@ -79,6 +79,8 @@ export class Fighter {
   grounded = false;
   facing: 1 | -1 = 1;
   evolution: Evolution = 'none';
+  speedMul = 1; // movement multiplier (fast monsters, buffs)
+  damageMul = 1; // outgoing attack damage multiplier (upgrades)
 
   private targets = {} as Record<PartName, number>;
   private lastHit = {} as Record<PartName, number>;
@@ -300,7 +302,7 @@ export class Fighter {
       Body.setVelocity(torso, { x: this.dodgeDir * C.dodgeSpeed, y: torso.velocity.y });
     } else {
       const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-      let speed = C.runSpeed * (legsLost >= 2 ? C.crippleSpeedMul : 1);
+      let speed = C.runSpeed * this.speedMul * (legsLost >= 2 ? C.crippleSpeedMul : 1);
       if (this.evolution === 'burrower') speed *= CFG.evolution.burrowSpeedMul;
       if (this.blocking) speed *= C.blockMoveMul;
       if (!this.grounded) speed *= C.airControl + 0.65;
@@ -489,7 +491,7 @@ export class Fighter {
 
   /** Power exposed to the damage system for the current attack (or neutral). */
   attackPower(): { dmgMul: number; knock: number } {
-    return this.attack ? { dmgMul: this.attack.dmgMul, knock: this.attack.knock } : { dmgMul: 1, knock: 0 };
+    return this.attack ? { dmgMul: this.attack.dmgMul * this.damageMul, knock: this.attack.knock } : { dmgMul: 1, knock: 0 };
   }
 
   /** True while an attack is winding up or striking (used by the AI to react). */

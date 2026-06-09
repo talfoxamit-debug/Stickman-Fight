@@ -4,6 +4,7 @@ import { Match, type GameMode } from './game/match';
 import { Fx } from './render/fx';
 import { Renderer } from './render/renderer';
 import { MATERIALS, PAINTABLE } from './powder/materials';
+import { UPGRADES } from './game/save';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 canvas.width = CFG.view.width;
@@ -52,7 +53,12 @@ function frame(now: number): void {
     if (input.consumePressed('KeyB')) match.toggleBot();
     if (input.consumePressed('KeyC')) match.grid.clear();
     if (input.consumePressed('KeyZ')) evoLabel = match.cyclePlayerEvolution();
-    for (let d = 0; d < DIGITS.length; d++) if (input.consumePressed(DIGITS[d]) && d < PAINTABLE.length) brush = d;
+    const inShop = match.mode === 'survival' && match.state === 'matchover';
+    if (inShop) {
+      for (let i = 0; i < UPGRADES.length; i++) if (input.consumePressed(`Digit${i + 1}`)) match.buyUpgrade(UPGRADES[i].key);
+    } else {
+      for (let d = 0; d < DIGITS.length; d++) if (input.consumePressed(DIGITS[d]) && d < PAINTABLE.length) brush = d;
+    }
     const cur = input.cursor();
     if (cur && input.isDown('KeyQ')) match.grid.paintPx(cur.x, cur.y, PAINTABLE[brush], 16);
   }

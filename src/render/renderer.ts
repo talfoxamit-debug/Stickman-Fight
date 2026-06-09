@@ -6,14 +6,14 @@ import type { Weapon } from '../physics/weapon';
 import type { Fx } from './fx';
 import { PowderRenderer } from '../powder/render';
 import { ARMOR } from '../physics/armor';
-import { xpForLevel } from '../game/save';
+import { xpForLevel, upgradeCost, UPGRADES } from '../game/save';
 
 const B = CFG.body;
 const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.14 · SURVIVAL mode (waves/XP/loot/extraction) + evolution';
+const VERSION = 'v0.15 · survival depth: monster types + upgrade shop';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -64,6 +64,7 @@ export class Renderer {
 
     this.hud(ctx, match);
     this.banner(ctx, match, paused);
+    if (match.mode === 'survival' && match.state === 'matchover') this.survivalShop(ctx, match);
 
     // Version stamp, bottom-left (confirms a fresh deploy is live).
     ctx.textAlign = 'left';
@@ -559,6 +560,26 @@ export class Renderer {
       ctx.font = 'bold 12px ui-monospace, monospace';
       ctx.fillText('P2 = BOT', W / 2, 66);
     }
+  }
+
+  private survivalShop(ctx: CanvasRenderingContext2D, match: Match): void {
+    const m = match.meta;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffcf4d';
+    ctx.font = 'bold 22px ui-monospace, monospace';
+    ctx.fillText(`UPGRADES  ·  stash: ${m.stash}`, W / 2, H / 2 + 60);
+    ctx.font = '15px ui-monospace, monospace';
+    for (let i = 0; i < UPGRADES.length; i++) {
+      const u = UPGRADES[i];
+      const lvl = m.upgrades[u.key];
+      const cost = upgradeCost(lvl);
+      const afford = m.stash >= cost;
+      ctx.fillStyle = afford ? '#7cff5a' : '#6a6a7a';
+      ctx.fillText(`[${i + 1}] ${u.name} Lv${lvl} — ${u.desc} — ${cost} loot`, W / 2, H / 2 + 92 + i * 26);
+    }
+    ctx.fillStyle = '#cbb8ff';
+    ctx.font = '14px ui-monospace, monospace';
+    ctx.fillText('press 1-4 to buy · R for a new run · M for menu', W / 2, H / 2 + 92 + UPGRADES.length * 26 + 10);
   }
 
   private statusPanel(ctx: CanvasRenderingContext2D, f: Fighter, x: number, align: 'left' | 'right'): void {

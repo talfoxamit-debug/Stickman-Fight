@@ -9,7 +9,8 @@ import type { BodyMeta } from '../types';
 import { Bot } from './bot';
 import { PowderGrid } from '../powder/grid';
 import { Mat } from '../powder/materials';
-import { loadMeta, saveMeta, xpForLevel, type SurvivalMeta } from './save';
+import { loadMeta, saveMeta, xpForLevel, upgradeCost, type SurvivalMeta, type UpgradeKey } from './save';
+import { pickArchetype, type MonsterArchetype } from './monsters';
 
 const { Engine, Composite, Bodies, Body, Events } = Matter;
 
@@ -580,18 +581,64 @@ export class Match {
     return f;
   }
 
+  private monsterDef?: MonsterArchetype;
+
   private makeMonster(): Fighter {
     const W = CFG.view.width;
-    const power = 55 + this.wave * 18;
-    const wi = (Math.random() * 3) | 0;
-    return this.makeFighter(1, W * 0.7, -1, { color: '#9be36b', accent: '#d6ffb0', name: 'ZOMBIE', weaponIndex: wi }, power);
+    const a = pickArchetype(this.wave);
+    this.monsterDef = a;
+    const power = (55 + this.wave * 18) * a.hpMul;
+    const wi = typeof a.weapon === 'number' ? a.weapon : (Math.random() * 3) | 0;
+    const f = this.makeFighter(1, W * 0.7, -1, { color: a.color, accent: a.accent, name: a.name.toUpperCase(), weaponIndex: wi }, power, a.evolution);
+    f.speedMul = a.speedMul ?? 1;
+    return f;
+  }
+
+  /** Death effects when a monster dies (before the next wave spawns). */
+  private applyMonsterDeath(def: MonsterArchetype, x: number, y: number): void {
+    if (def.onDeath === 'fireburst') this.grid.paintPx(x, y, Mat.Fire, 24);
+    else if (def.onDeath === 'acidburst') this.grid.paintPx(x, y, Mat.Acid, 22);
+    else if (def.onDeath === 'explode') {
+      const r = 115;
+      const player = this.fighters[0];
+      for (const b of player.bodies()) {
+        const dx = b.position.x - x, dy = b.position.y - y, d = Math.hypot(dx, dy);
+        if (d < r) {
+          const k = (1 - d / r) * 20, inv = 1 / (d || 1);
+          Body.setVelocity(b, { x: b.velocity.x + dx * inv * k, y: b.velocity.y + dy * inv * k - 4 });
+        }
+      }
+      player.damagePart('torso', 18, this.simNow, 'explosive');
+      this.grid.paintPx(x, y, Mat.Fire, 22);
+      this.fx.impact(x, y, 28, '#ffcf4d');
+      this.fx.shake(16);
+      this.hitstopSteps = Math.max(this.hitstopSteps, 4);
+    }
   }
 
   private makeSurvivalFighters(): [Fighter, Fighter] {
     const W = CFG.view.width;
-    const hp = CFG.health.core + this.meta.level * 15;
+    const u = this.meta.upgrades;
+    const hp = CFG.health.core + this.meta.level * 15 + u.vitality * 20;
     const player = this.makeFighter(0, W * 0.3, 1, { color: '#22e3ff', accent: '#aef9ff', name: 'YOU', weaponIndex: 0 }, hp, this.playerEvo);
+    player.damageMul = 1 + u.power * 0.15;
+    player.speedMul = 1 + u.swiftness * 0.1;
+    if (u.plating > 0) {
+      for (const ar of Object.values(player.armor)) {
+        if (ar) { ar.max = Math.round(ar.max * (1 + u.plating * 0.25)); ar.hp = ar.max; }
+      }
+    }
     return [player, this.makeMonster()];
+  }
+
+  /** Spend banked stash on a permanent upgrade (used from the Survival shop). */
+  buyUpgrade(key: UpgradeKey): boolean {
+    const cost = upgradeCost(this.meta.upgrades[key]);
+    if (this.meta.stash < cost) return false;
+    this.meta.stash -= cost;
+    this.meta.upgrades[key]++;
+    saveMeta(this.meta);
+    return true;
   }
 
   private beginSurvivalRun(): void {
@@ -643,9 +690,11 @@ export class Match {
         return;
       }
       if (monster.koed) {
+        const mp = monster.torsoBody.position;
+        if (this.monsterDef) this.applyMonsterDeath(this.monsterDef, mp.x, mp.y);
         this.grantXP(18 + this.wave * 6);
         this.runResources += 3 + this.wave;
-        this.fx.confetti(monster.torsoBody.position.x, 180);
+        this.fx.confetti(mp.x, 180);
         if (this.wave >= this.EXTRACT_WAVE) {
           this.meta.stash += this.runResources;
           this.meta.bestWave = Math.max(this.meta.bestWave, this.wave);
