@@ -463,6 +463,11 @@ export class Fighter {
     return this.attack ? { dmgMul: this.attack.dmgMul, knock: this.attack.knock } : { dmgMul: 1, knock: 0 };
   }
 
+  /** True while an attack is winding up or striking (used by the AI to react). */
+  isAttacking(): boolean {
+    return this.attack !== null;
+  }
+
   isCharging(now: number): boolean {
     return this.prevAttack && !this.heavyArmed && !this.attack && this.attackHeldSince >= 0 &&
       now - this.attackHeldSince >= 110 && this.canStrikeArmed();
