@@ -1,6 +1,6 @@
 import Matter from 'matter-js';
 import { CFG } from '../config';
-import { angleDiff, clamp } from '../core/util';
+import { angleDiff, clamp, lerp } from '../core/util';
 import type { PlayerInput } from '../core/input';
 import type { BodyMeta, PartName } from '../types';
 import { createWeapon, setWeaponOwner, type Weapon } from './weapon';
@@ -86,9 +86,20 @@ export class Fighter {
   private attackHeldSince = -1;
   private heavyArmed = false;
   private swingCooldownUntil = 0;
-  private walkPhase = 0;
   private walking = false;
   private walkDir = 1;
+  // Foot-planting IK locomotion state.
+  private footPlantX: [number, number] = [0, 0];
+  private swingStartX: [number, number] = [0, 0];
+  private swingFoot = 0;
+  private swingPhase = 1; // 1 = both feet planted
+  private gaitPhase = 0;
+  private feetInit = false;
+  // Resolved IK joint positions for rendering planted-foot legs.
+  private ikValid = false;
+  private ikHip = { x: 0, y: 0 };
+  private ikL = { kx: 0, ky: 0, fx: 0, fy: 0 };
+  private ikR = { kx: 0, ky: 0, fx: 0, fy: 0 };
   // Mobility / defense.
   blocking = false;
   manualFacing = false;
@@ -297,13 +308,10 @@ export class Fighter {
       }
     }
 
-    // Walk cycle.
+    // Gait state for the foot-planting locomotion.
     const vx = torso.velocity.x;
     this.walking = this.grounded && !dodging && Math.abs(vx) > C.walkMinSpeed;
-    if (this.walking) {
-      this.walkDir = Math.sign(vx);
-      this.walkPhase += Math.abs(vx) * C.strideRate;
-    }
+    if (this.walking) this.walkDir = Math.sign(vx);
 
     // Jump: buffer + coyote time + double jump + variable height.
     if (input.jump && !this.prevJump) this.jumpBufferedAt = now;
@@ -586,27 +594,13 @@ export class Fighter {
       return;
     }
 
-    if (this.walking) {
-      // Procedural walk cycle: opposite-phase leg swing oriented to travel direction,
-      // knees bend on the lifting (back) half so the feet clear the ground.
-      const d = this.walkDir;
-      const s = Math.sin(this.walkPhase) * d;
-      this.targets.upperLegL = c.legSwingAmp * s;
-      this.targets.upperLegR = -c.legSwingAmp * s;
-      this.targets.lowerLegL = 0.05 + c.kneeBendAmp * Math.max(0, -s);
-      this.targets.lowerLegR = 0.05 + c.kneeBendAmp * Math.max(0, s);
-      // Non-weapon arm counter-swings; weapon arm swings the opposite way to it.
-      this.targets.upperArmL = -0.5 * f - c.armSwingAmp * s;
-      this.targets.lowerArmL = -0.7 * f;
-    } else {
-      // Idle stand.
-      this.targets.upperLegL = 0.05;
-      this.targets.upperLegR = 0.05;
-      this.targets.lowerLegL = 0.05;
-      this.targets.lowerLegR = 0.05;
-      this.targets.upperArmL = -0.5 * f;
-      this.targets.lowerArmL = -0.7 * f;
-    }
+    // Legs: foot-planting IK (feet lock to the ground; body pivots over them).
+    this.updateLegs();
+    // Arms counter-swing with the gait.
+    this.gaitPhase += Math.abs(this.parts.torso.velocity.x) / CFG.control.stride;
+    const armS = this.walking ? Math.sin(this.gaitPhase) * c.armSwingAmp : 0;
+    this.targets.upperArmL = -0.5 * f + armS;
+    this.targets.lowerArmL = -0.7 * f;
 
     // Weapon-arm rest pose (used when not mid-swing): held up-and-forward as a guard.
     this.targets.upperArmR = 0.7 * f;
@@ -641,11 +635,100 @@ export class Fighter {
     for (const p of Object.keys(this.targets) as PartName[]) {
       if (p === 'torso' || this.isBroken(p) || drivenSet.has(p)) continue;
       const isLeg = p === 'upperLegL' || p === 'lowerLegL' || p === 'upperLegR' || p === 'lowerLegR';
-      const gain = this.walking && isLeg ? c.walkLegGain : c.poseGain;
-      const maxVel = this.walking && isLeg ? c.walkLegMaxVel : c.poseMaxVel;
+      const gain = isLeg ? c.walkLegGain : c.poseGain;
+      const maxVel = isLeg ? c.walkLegMaxVel : c.poseMaxVel;
       const target = this.targets[p] + (p === 'head' ? this.parts.torso.angle : 0);
       this.driveAngle(p, target, gain, c.poseBlend, maxVel);
     }
+  }
+
+  /**
+   * Foot-planting locomotion: each foot locks to a world position while the body
+   * moves over it, then steps forward. Sets the four leg-segment targets via 2-bone IK.
+   */
+  private updateLegs(): void {
+    const c = CFG.control;
+    const torso = this.parts.torso;
+    const hip = this.hipPivot();
+    const groundY = torso.position.y + c.standHeight;
+    const L1 = CFG.body.upperLeg.h * 0.96;
+    const L2 = CFG.body.lowerLeg.h * 0.96;
+    this.ikHip = hip;
+    this.ikValid = this.grounded && !this.koed;
+
+    if (!this.feetInit) {
+      this.footPlantX = [hip.x - c.footSpread, hip.x + c.footSpread];
+      this.swingStartX = [this.footPlantX[0], this.footPlantX[1]];
+      this.feetInit = true;
+    }
+
+    if (!this.grounded) {
+      this.legIK('L', hip, hip.x - 7, groundY - 12, L1, L2);
+      this.legIK('R', hip, hip.x + 7, groundY - 12, L1, L2);
+      return;
+    }
+
+    let lFootX: number, lFootY: number, rFootX: number, rFootY: number;
+    if (this.walking) {
+      this.swingPhase += Math.abs(torso.velocity.x) / c.stride;
+      const sw = this.swingFoot;
+      const st = 1 - sw;
+      if (this.swingPhase >= 1) {
+        this.footPlantX[sw] = hip.x + this.walkDir * c.stride;
+        this.swingFoot = st;
+        this.swingStartX[st] = this.footPlantX[st];
+        this.swingPhase = 0;
+      }
+      const sp = clamp(this.swingPhase, 0, 1);
+      const swingX = lerp(this.swingStartX[this.swingFoot], hip.x + this.walkDir * c.stride, sp);
+      const swingY = groundY - Math.sin(sp * Math.PI) * c.stepLift;
+      const stanceX = this.footPlantX[1 - this.swingFoot];
+      const swIsLeft = this.swingFoot === 0;
+      lFootX = swIsLeft ? swingX : stanceX;
+      lFootY = swIsLeft ? swingY : groundY;
+      rFootX = swIsLeft ? stanceX : swingX;
+      rFootY = swIsLeft ? groundY : swingY;
+    } else {
+      this.footPlantX = [hip.x - c.footSpread, hip.x + c.footSpread];
+      this.swingPhase = 1;
+      lFootX = this.footPlantX[0]; lFootY = groundY;
+      rFootX = this.footPlantX[1]; rFootY = groundY;
+    }
+    this.legIK('L', hip, lFootX, lFootY, L1, L2);
+    this.legIK('R', hip, rFootX, rFootY, L1, L2);
+  }
+
+  /** 2-bone IK: place the foot at (fx,fy) and set the leg segment target angles. */
+  private legIK(side: 'L' | 'R', hip: { x: number; y: number }, fx: number, fy: number, L1: number, L2: number): void {
+    let vx = fx - hip.x;
+    let vy = fy - hip.y;
+    let d = Math.hypot(vx, vy) || 0.001;
+    const cd = clamp(d, Math.abs(L1 - L2) + 1, L1 + L2 - 1);
+    vx = (vx / d) * cd; vy = (vy / d) * cd; d = cd;
+    const a = Math.atan2(vy, vx);
+    const cosA = clamp((d * d + L1 * L1 - L2 * L2) / (2 * d * L1), -1, 1);
+    const A = Math.acos(cosA);
+    const kneeSign = this.facing * CFG.control.kneeDir;
+    const upperStd = a - kneeSign * A;
+    const kx = hip.x + Math.cos(upperStd) * L1;
+    const ky = hip.y + Math.sin(upperStd) * L1;
+    const lowerStd = Math.atan2(fy - ky, fx - kx);
+    const up = (side === 'L' ? 'upperLegL' : 'upperLegR') as PartName;
+    const lo = (side === 'L' ? 'lowerLegL' : 'lowerLegR') as PartName;
+    this.targets[up] = Math.atan2(-Math.cos(upperStd), Math.sin(upperStd));
+    this.targets[lo] = Math.atan2(-Math.cos(lowerStd), Math.sin(lowerStd));
+    const store = side === 'L' ? this.ikL : this.ikR;
+    store.kx = kx; store.ky = ky; store.fx = fx; store.fy = fy;
+  }
+
+  /** IK leg joint positions for rendering planted-foot legs (invalid when ragdolling). */
+  ikLegs(): {
+    valid: boolean;
+    hip: { x: number; y: number };
+    L: { kx: number; ky: number; fx: number; fy: number };
+    R: { kx: number; ky: number; fx: number; fy: number };
+  } {
+    return { valid: this.ikValid && this.feetInit, hip: this.ikHip, L: this.ikL, R: this.ikR };
   }
 
   /**

@@ -78,8 +78,14 @@ export const CFG = {
     walkMinSpeed: 0.35, // |vx| above which the walk cycle plays
     // Legs get dedicated strong steering so they actually reach the walk pose
     // (the gentle pose gains can't keep up with the step cadence).
-    walkLegGain: 0.55,
-    walkLegMaxVel: 0.6,
+    walkLegGain: 0.6,
+    walkLegMaxVel: 0.7,
+    // Foot-planting IK locomotion: feet lock to the ground while the body moves
+    // over them, then step forward (kills the 'ghost gliding' slide).
+    stride: 46, // step length (px) before the swing foot plants ahead
+    stepLift: 16, // how high the swing foot lifts mid-step (px)
+    footSpread: 10, // idle stance width (px from hip center)
+    kneeDir: 1, // knee bend direction (flip to -1 if knees look backwards)
   },
 
   combat: {

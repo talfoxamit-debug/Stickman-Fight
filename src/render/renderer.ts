@@ -12,7 +12,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.11 · main menu + modes (versus / solo / sandbox)';
+const VERSION = 'v0.12 · foot-planting IK legs (no more ghost gliding)';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -192,8 +192,15 @@ export class Renderer {
   // ---- fighter ------------------------------------------------------------
 
   private fighter(ctx: CanvasRenderingContext2D, f: Fighter): void {
+    const ik = f.ikLegs();
+    const drawIKL = ik.valid && !f.isBroken('upperLegL') && !f.isBroken('lowerLegL');
+    const drawIKR = ik.valid && !f.isBroken('upperLegR') && !f.isBroken('lowerLegR');
+    if (drawIKL) this.ikLeg(ctx, f, ik.hip, ik.L, 'L');
+    if (drawIKR) this.ikLeg(ctx, f, ik.hip, ik.R, 'R');
     for (const part of LIMB_ORDER) {
       if (part === 'head') continue;
+      if (drawIKL && (part === 'upperLegL' || part === 'lowerLegL')) continue;
+      if (drawIKR && (part === 'upperLegR' || part === 'lowerLegR')) continue;
       this.segment(ctx, f, part);
     }
     this.head(ctx, f);
@@ -307,6 +314,49 @@ export class Renderer {
       ctx.fill();
       ctx.restore();
     }
+  }
+
+  private ikLeg(
+    ctx: CanvasRenderingContext2D,
+    f: Fighter,
+    hip: { x: number; y: number },
+    pts: { kx: number; ky: number; fx: number; fy: number },
+    side: 'L' | 'R',
+  ): void {
+    const upThick = PART_DIMS.upperLegL.thick;
+    const loThick = PART_DIMS.lowerLegL.thick;
+    this.bone(ctx, hip.x, hip.y, pts.kx, pts.ky, upThick, f.accent, f.color);
+    this.bone(ctx, pts.kx, pts.ky, pts.fx, pts.fy, loThick, f.accent, f.color);
+    // Armor band on the thigh.
+    const ar = f.armorAt(side === 'L' ? 'upperLegL' : 'upperLegR');
+    if (ar) {
+      ctx.save();
+      ctx.globalAlpha = 0.55 + 0.4 * (ar.hp / ar.max);
+      this.bone(ctx, hip.x, hip.y, pts.kx, pts.ky, upThick + 5, ARMOR[ar.mat].color, ARMOR[ar.mat].color, 0);
+      ctx.restore();
+    }
+    // Foot.
+    ctx.save();
+    ctx.fillStyle = f.accent;
+    ctx.shadowColor = f.color; ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.ellipse(pts.fx + f.facing * 4, pts.fy + 2, 8, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private bone(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, thick: number, color: string, glow: string, blur = 12): void {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineWidth = thick;
+    ctx.strokeStyle = color;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = blur;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   private head(ctx: CanvasRenderingContext2D, f: Fighter): void {
