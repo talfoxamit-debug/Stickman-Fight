@@ -11,30 +11,34 @@ accessibility toggle alongside neon FX.
 
 ---
 
-## Phase 0 — Skeleton (foundation)
+## Phase 0 — Skeleton (foundation) ✅ done
 
-- [ ] Vite + TypeScript project, lint/format, `npm run dev` / `build`
-- [ ] Layered canvas renderer + camera + fixed-timestep game loop (accumulator)
-- [ ] Matter.js world wired in; one controllable box on a platform
-- [ ] Basic input layer (keyboard) + debug overlay (FPS, body count)
-- [ ] Vitest set up; CI placeholder
+- [x] Vite + TypeScript project, `npm run dev` / `build` / `test`
+- [x] Canvas renderer + screen-shake camera + fixed-timestep game loop (accumulator)
+- [x] Matter.js world wired in; arena platform with edge railings + ring-out pit
+- [x] Keyboard input layer (two players + global hotkeys)
+- [x] Vitest set up with headless sim smoke tests
 
-**Exit:** a box you can move/jump on a platform at a stable 60fps.
+**Exit:** ✅ stable fixed-timestep sim with physics + input + rendering.
 
-## Phase 1 — Ragdoll Slice ✅ *first genuinely fun build*
+## Phase 1 — Ragdoll Slice ✅ *first genuinely fun build — done*
 
-- [ ] Compound ragdoll stickman (head/torso/arms/legs) with constraints
-- [ ] **Active-ragdoll** controller (PD/motor target poses): stand, walk, jump
-- [ ] Per-joint integrity + break → limb detaches into debris
-- [ ] Grab + hold one melee weapon (constraint to hand); momentum swing; drop on
-      weapon-arm break
-- [ ] Unified damage model v1 (blunt/cut, impact-based)
-- [ ] Local 2-player on one keyboard; KO by head/torso; round flow + simple HUD
-- [ ] First juice pass: screen shake, hit-stop, basic SFX
-- [ ] First **style** pass: establish the colorful/silly look + one absurd prop weapon +
-      confetti KO (lock in the art identity early, not at the end)
+- [x] Compound ragdoll stickman (head/torso/arms/legs) with breakable constraints
+- [x] **Active-ragdoll** controller (per-segment PD posing): stand, walk-bob, jump
+- [x] Per-joint integrity + break → limb (and held weapon) detaches into debris
+- [x] Grab + hold a melee weapon (constraint to hand); momentum swing; drop on
+      weapon-arm break; throw + pick up loose weapons
+- [x] Unified impact-based damage model v1 (per-part cooldown, damage cap, core HP)
+- [x] Local 2-player on one keyboard; KO by core/decapitation/ring-out; best-of-3
+      rounds + HUD (per-limb status, HP, score pips)
+- [x] First juice pass: screen shake, hit-stop, impact + confetti particles
+- [x] First **style** pass: neon festival look, silly props (party hats, tutus, disco
+      mace / neon saber / doom baguette), confetti KO
+- [x] Bonus: simple bot opponent for solo play (`B`)
+- [ ] SFX/music (deferred to the Phase 6 juice pass)
 
-**Exit:** a hilarious 2P ragdoll duel where arms break and swords drop. Shippable.
+**Exit:** ✅ a chaotic 2P ragdoll duel where arms break, weapons drop, and heads roll.
+Feel is tunable in `src/config.ts`; needs human playtest tuning of the PD gains.
 
 ## Phase 2 — Powder Core
 

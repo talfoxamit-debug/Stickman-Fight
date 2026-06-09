@@ -1,0 +1,363 @@
+import { CFG } from '../config';
+import type { PartName } from '../types';
+import type { Fighter } from '../physics/fighter';
+import type { Match } from '../game/match';
+import type { Weapon } from '../physics/weapon';
+import type { Fx } from './fx';
+
+const B = CFG.body;
+const W = CFG.view.width;
+const H = CFG.view.height;
+
+const PART_DIMS: Record<PartName, { len: number; thick: number }> = {
+  head: { len: B.headRadius * 2, thick: B.headRadius * 2 },
+  torso: { len: B.torso.h, thick: B.torso.w },
+  upperArmL: { len: B.upperArm.h, thick: B.upperArm.w },
+  lowerArmL: { len: B.lowerArm.h, thick: B.lowerArm.w },
+  upperArmR: { len: B.upperArm.h, thick: B.upperArm.w },
+  lowerArmR: { len: B.lowerArm.h, thick: B.lowerArm.w },
+  upperLegL: { len: B.upperLeg.h, thick: B.upperLeg.w },
+  lowerLegL: { len: B.lowerLeg.h, thick: B.lowerLeg.w },
+  upperLegR: { len: B.upperLeg.h, thick: B.upperLeg.w },
+  lowerLegR: { len: B.lowerLeg.h, thick: B.lowerLeg.w },
+};
+
+const LIMB_ORDER: PartName[] = [
+  'upperLegL', 'lowerLegL', 'upperLegR', 'lowerLegR',
+  'upperArmL', 'lowerArmL', 'upperArmR', 'lowerArmR',
+  'torso',
+];
+
+export class Renderer {
+  constructor(private ctx: CanvasRenderingContext2D) {}
+
+  draw(match: Match, fx: Fx, paused: boolean): void {
+    const ctx = this.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.background(ctx);
+
+    ctx.save();
+    ctx.translate(fx.shakeX, fx.shakeY);
+    this.platform(ctx);
+    for (const w of match.looseWeapons) this.weapon(ctx, w, false);
+    for (const f of match.fighters) this.fighter(ctx, f);
+    fx.draw(ctx);
+    ctx.restore();
+
+    this.hud(ctx, match);
+    this.banner(ctx, match, paused);
+  }
+
+  // ---- world --------------------------------------------------------------
+
+  private background(ctx: CanvasRenderingContext2D): void {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#1a0830');
+    g.addColorStop(0.55, '#2a0a3e');
+    g.addColorStop(1, '#3d0b2e');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // Festival "moon" + glow orbs.
+    this.glowCircle(ctx, W * 0.82, 120, 46, 'rgba(255,221,120,0.9)', 60);
+    this.glowCircle(ctx, W * 0.18, 90, 8, 'rgba(0,240,255,0.8)', 30);
+    this.glowCircle(ctx, W * 0.4, 70, 5, 'rgba(255,55,200,0.8)', 24);
+    this.glowCircle(ctx, W * 0.62, 110, 6, 'rgba(124,255,90,0.8)', 26);
+
+    // Horizon haze.
+    const hz = ctx.createLinearGradient(0, CFG.arena.floorY - 120, 0, CFG.arena.floorY);
+    hz.addColorStop(0, 'rgba(255,55,200,0)');
+    hz.addColorStop(1, 'rgba(255,55,200,0.18)');
+    ctx.fillStyle = hz;
+    ctx.fillRect(0, CFG.arena.floorY - 120, W, 120);
+  }
+
+  private platform(ctx: CanvasRenderingContext2D): void {
+    const inset = CFG.arena.wallInset;
+    const x = inset;
+    const y = CFG.arena.floorY;
+    const w = W - inset * 2;
+    const h = CFG.arena.floorThickness;
+    ctx.fillStyle = '#160a22';
+    ctx.fillRect(x, y, w, h);
+    // Neon top edge.
+    ctx.save();
+    ctx.shadowColor = '#00f0ff';
+    ctx.shadowBlur = 24;
+    ctx.strokeStyle = '#00f0ff';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + w, y);
+    ctx.stroke();
+    ctx.restore();
+    // Playa dashes.
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 2;
+    for (let i = x + 20; i < x + w; i += 48) {
+      ctx.beginPath();
+      ctx.moveTo(i, y + 16);
+      ctx.lineTo(i + 22, y + 16);
+      ctx.stroke();
+    }
+    // Neon edge railings.
+    ctx.save();
+    ctx.shadowColor = '#ff37c8';
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = '#ff37c8';
+    const rh = CFG.arena.railHeight;
+    for (const rx of [inset, W - inset]) ctx.fillRect(rx - 7, y - rh + 6, 14, rh);
+    ctx.restore();
+  }
+
+  // ---- fighter ------------------------------------------------------------
+
+  private fighter(ctx: CanvasRenderingContext2D, f: Fighter): void {
+    for (const part of LIMB_ORDER) {
+      if (part === 'head') continue;
+      this.segment(ctx, f, part);
+    }
+    this.head(ctx, f);
+    if (f.weapon) this.weapon(ctx, f.weapon, true);
+  }
+
+  private segment(ctx: CanvasRenderingContext2D, f: Fighter, part: PartName): void {
+    const body = f.parts[part];
+    const dims = PART_DIMS[part];
+    const broken = f.isBroken(part);
+    const ax = -Math.sin(body.angle);
+    const ay = Math.cos(body.angle);
+    const half = dims.len / 2 - dims.thick / 2;
+    const x1 = body.position.x - ax * half;
+    const y1 = body.position.y - ay * half;
+    const x2 = body.position.x + ax * half;
+    const y2 = body.position.y + ay * half;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineWidth = dims.thick;
+    if (broken) {
+      ctx.strokeStyle = '#4b4459';
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.7;
+    } else {
+      ctx.strokeStyle = part === 'torso' ? f.color : f.accent;
+      ctx.shadowColor = f.color;
+      ctx.shadowBlur = 14;
+    }
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.restore();
+
+    // A silly neon "tutu" at the hips (drawn over the torso bottom).
+    if (part === 'torso' && !broken) {
+      const hx = body.position.x + Math.sin(body.angle) * (B.torso.h / 2);
+      const hy = body.position.y + Math.cos(body.angle) * (B.torso.h / 2);
+      ctx.save();
+      ctx.fillStyle = f.color;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.moveTo(hx - 16, hy);
+      ctx.lineTo(hx + 16, hy);
+      ctx.lineTo(hx + 9, hy + 12);
+      ctx.lineTo(hx, hy + 4);
+      ctx.lineTo(hx - 9, hy + 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  private head(ctx: CanvasRenderingContext2D, f: Fighter): void {
+    const body = f.parts.head;
+    const broken = f.isBroken('head');
+    ctx.save();
+    ctx.translate(body.position.x, body.position.y);
+    ctx.rotate(body.angle);
+    // Skull.
+    ctx.fillStyle = broken ? '#4b4459' : f.color;
+    ctx.shadowColor = f.color;
+    ctx.shadowBlur = broken ? 0 : 16;
+    ctx.beginPath();
+    ctx.arc(0, 0, B.headRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Goggles (eyes).
+    ctx.fillStyle = '#0c0712';
+    const ex = f.facing * 4;
+    ctx.beginPath(); ctx.arc(ex - 4, -2, 3.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(ex + 4, -2, 3.2, 0, Math.PI * 2); ctx.fill();
+    // Party hat.
+    if (!broken) {
+      ctx.fillStyle = f.accent;
+      ctx.beginPath();
+      ctx.moveTo(-9, -B.headRadius + 2);
+      ctx.lineTo(9, -B.headRadius + 2);
+      ctx.lineTo(0, -B.headRadius - 16);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(0, -B.headRadius - 16, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  private weapon(ctx: CanvasRenderingContext2D, w: Weapon, held: boolean): void {
+    const body = w.body;
+    const def = w.def;
+    const ax = -Math.sin(body.angle);
+    const ay = Math.cos(body.angle);
+    const half = def.len / 2;
+    const gripX = body.position.x + ax * half; // grip end
+    const gripY = body.position.y + ay * half;
+    const tipX = body.position.x - ax * half; // business end
+    const tipY = body.position.y - ay * half;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineWidth = def.thick;
+    ctx.strokeStyle = def.color;
+    ctx.shadowColor = def.glow;
+    ctx.shadowBlur = held ? 18 : 10;
+    ctx.globalAlpha = held ? 1 : 0.92;
+    ctx.beginPath();
+    ctx.moveTo(gripX, gripY);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+
+    if (def.shape === 'discoflail') {
+      ctx.fillStyle = def.color;
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, def.thick * 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(tipX - 8, tipY); ctx.lineTo(tipX + 8, tipY);
+      ctx.moveTo(tipX, tipY - 8); ctx.lineTo(tipX, tipY + 8);
+      ctx.stroke();
+    } else if (def.shape === 'sword') {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.moveTo(gripX - ax * 8, gripY - ay * 8);
+      ctx.lineTo(gripX + ay * 9, gripY - ax * 9); // crossguard
+      ctx.lineTo(gripX - ay * 9, gripY + ax * 9);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ---- HUD ----------------------------------------------------------------
+
+  private hud(ctx: CanvasRenderingContext2D, match: Match): void {
+    this.statusPanel(ctx, match.fighters[0], 24, 'left');
+    this.statusPanel(ctx, match.fighters[1], W - 24, 'right');
+
+    // Round score pips.
+    const total = CFG.rounds.winsNeeded;
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 14px ui-monospace, monospace';
+    ctx.fillStyle = '#cbb8ff';
+    ctx.fillText(`ROUND ${match.round}`, W / 2, 30);
+    for (let s = 0; s < total; s++) {
+      this.pip(ctx, W / 2 - 18, 46, match.scores[0] > s, match.fighters[0].color);
+      this.pip(ctx, W / 2 + 18, 46, match.scores[1] > s, match.fighters[1].color);
+    }
+    if (match.botEnabled) {
+      ctx.fillStyle = '#ff9e3d';
+      ctx.font = 'bold 12px ui-monospace, monospace';
+      ctx.fillText('P2 = BOT', W / 2, 66);
+    }
+  }
+
+  private statusPanel(ctx: CanvasRenderingContext2D, f: Fighter, x: number, align: 'left' | 'right'): void {
+    const dir = align === 'left' ? 1 : -1;
+    ctx.textAlign = align;
+    ctx.font = 'bold 18px ui-monospace, monospace';
+    ctx.fillStyle = f.color;
+    ctx.fillText(f.name, x, 34);
+
+    // Core HP bar.
+    const bw = 220;
+    const bx = align === 'left' ? x : x - bw;
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(bx, 42, bw, 12);
+    const frac = Math.max(0, f.coreHealth / f.maxCore);
+    ctx.fillStyle = frac > 0.5 ? '#7cff5a' : frac > 0.25 ? '#ffcf4d' : '#ff5a5a';
+    ctx.fillRect(align === 'left' ? bx : x - bw * frac, 42, bw * frac, 12);
+
+    // Limb pips: head, 2 arms, 2 legs.
+    const limbs: { p: PartName; label: string }[] = [
+      { p: 'head', label: 'H' },
+      { p: 'upperArmR', label: 'R' },
+      { p: 'upperArmL', label: 'L' },
+      { p: 'upperLegR', label: 'r' },
+      { p: 'upperLegL', label: 'l' },
+    ];
+    ctx.font = '11px ui-monospace, monospace';
+    for (let i = 0; i < limbs.length; i++) {
+      const px = x + dir * (10 + i * 26);
+      const ok = !f.isBroken(limbs[i].p);
+      this.pip(ctx, px, 70, ok, ok ? f.accent : '#4b4459');
+      ctx.fillStyle = ok ? '#0c0712' : '#888';
+      ctx.textAlign = 'center';
+      ctx.fillText(limbs[i].label, px, 74);
+    }
+  }
+
+  private pip(ctx: CanvasRenderingContext2D, x: number, y: number, on: boolean, color: string): void {
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = on ? color : 'rgba(255,255,255,0.12)';
+    ctx.fill();
+  }
+
+  // ---- banner -------------------------------------------------------------
+
+  private banner(ctx: CanvasRenderingContext2D, match: Match, paused: boolean): void {
+    let text = '';
+    let sub = '';
+    if (paused) {
+      text = 'PAUSED';
+      sub = 'press P to resume';
+    } else if (match.state === 'intro' || match.state === 'roundover') {
+      text = match.message;
+    } else if (match.state === 'matchover') {
+      text = match.message;
+      sub = 'press R for a rematch';
+    } else {
+      return;
+    }
+
+    ctx.textAlign = 'center';
+    ctx.save();
+    ctx.shadowColor = '#ff37c8';
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 52px ui-monospace, monospace';
+    ctx.fillText(text, W / 2, H / 2 - 10);
+    ctx.restore();
+    if (sub) {
+      ctx.fillStyle = '#cbb8ff';
+      ctx.font = '18px ui-monospace, monospace';
+      ctx.fillText(sub, W / 2, H / 2 + 30);
+    }
+  }
+
+  // ---- helpers ------------------------------------------------------------
+
+  private glowCircle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, blur: number): void {
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = blur;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}

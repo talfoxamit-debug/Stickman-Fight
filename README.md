@@ -25,9 +25,37 @@ like an **alchemist**.
 
 ## Status
 
-🚧 **Pre-production.** This repo currently contains the design + plan. Nothing is
-built yet — see the docs below, then we build it phase by phase (Phase 1 is an
-independently fun, playable 2-player ragdoll duel).
+🟢 **Phase 1 playable** — a local 2-player active-ragdoll duel is implemented:
+breakable limbs, weapons that drop when you smash the arm holding them, momentum
+swings, throw/pickup, ring-outs, best-of-3 rounds, a colorful festival look, and a
+simple bot for solo play. The rest of the vision (powder chemistry, survival, evolution)
+is still on the [roadmap](docs/ROADMAP.md).
+
+## Run it
+
+```bash
+npm install
+npm run dev      # open the printed localhost URL in a browser
+```
+
+Other scripts: `npm run build` (type-check + production bundle), `npm test` (headless
+sim tests), `npm run preview` (serve the build).
+
+### Controls
+
+| | Move | Jump | Attack | Grab / Throw |
+|--|--|--|--|--|
+| **P1** | `A` / `D` | `W` | `F` | `G` |
+| **P2** | `←` / `→` | `↑` | `.` | `/` |
+
+Global: **`B`** toggle P2 bot (play solo) · **`R`** rematch · **`P`** pause.
+
+> **Tip — limb tactics:** smash an arm to disarm your opponent (the weapon drops — grab
+> it!), break both legs to cripple their movement, or land sustained head hits for a
+> decapitation KO. Or just launch them clean over the railing for a ring-out.
+
+> Combat feel (PD-controlled "active ragdoll") is tuned via `src/config.ts` — every
+> knob (gravity, swing speed, joint integrity, damage) lives there for easy playtesting.
 
 ## Docs
 
