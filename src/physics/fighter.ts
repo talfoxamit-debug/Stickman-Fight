@@ -81,6 +81,8 @@ export class Fighter {
   evolution: Evolution = 'none';
   speedMul = 1; // movement multiplier (fast monsters, buffs)
   damageMul = 1; // outgoing attack damage multiplier (upgrades)
+  /** World mode: returns the ground surface y below (x,y). Replaces the flat arena floor. */
+  groundSampler?: (x: number, y: number) => number;
 
   private targets = {} as Record<PartName, number>;
   private lastHit = {} as Record<PartName, number>;
@@ -354,9 +356,13 @@ export class Fighter {
     }
     this.prevJump = input.jump;
 
-    // Stand support (skipped during a dodge).
+    // Stand support: buoy the torso to the ground (flat arena floor, or terrain).
+    const floorY = this.groundSampler ? this.groundSampler(torso.position.x, torso.position.y) : CFG.arena.floorY;
+    if (this.groundSampler) {
+      this.grounded = torso.position.y + C.standHeight >= floorY - 14 && torso.velocity.y >= -3;
+    }
     if (!dodging && this.grounded && legsLost < 2 && torso.velocity.y > -2) {
-      const targetY = CFG.arena.floorY - C.standHeight;
+      const targetY = floorY - C.standHeight;
       const err = targetY - torso.position.y;
       if (err < -2) {
         const desiredVy = clamp(err * C.standGain, -C.standMaxVel, 0);

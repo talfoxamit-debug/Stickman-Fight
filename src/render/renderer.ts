@@ -7,13 +7,21 @@ import type { Fx } from './fx';
 import { PowderRenderer } from '../powder/render';
 import { ARMOR } from '../physics/armor';
 import { xpForLevel, upgradeCost, UPGRADES } from '../game/save';
+import type { World } from '../world/world';
+import { PALETTE, MAT_COUNT, MATERIALS, Mat } from '../powder/materials';
+
+const MAT_COLORS: string[] = (() => {
+  const a: string[] = [];
+  for (let m = 0; m < MAT_COUNT; m++) a.push(`rgb(${PALETTE[m * 3]},${PALETTE[m * 3 + 1]},${PALETTE[m * 3 + 2]})`);
+  return a;
+})();
 
 const B = CFG.body;
 const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.17 · survival prep hub (buy/evolve/deploy)';
+const VERSION = 'v0.18 · WORLD mode — Terraria-style dig & explore (Stage 1)';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -73,7 +81,76 @@ export class Renderer {
     ctx.fillText(VERSION, 12, H - 10);
   }
 
-  // ---- world --------------------------------------------------------------
+  // ---- Terraria-style world -----------------------------------------------
+
+  drawWorld(world: World, fx: Fx): void {
+    const ctx = this.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // Sky.
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, '#6db3e8');
+    sky.addColorStop(1, '#274a63');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.translate(-Math.round(world.camera.x), -Math.round(world.camera.y));
+    this.terrain(ctx, world);
+    for (const m of world.monsters) this.fighter(ctx, m);
+    this.fighter(ctx, world.player);
+    fx.draw(ctx);
+    ctx.restore();
+
+    // Depth darkening (caves feel dark the deeper you go).
+    const depth = Math.min(0.82, world.camera.y / (world.grid.heightPx * 0.6));
+    if (depth > 0.02) { ctx.fillStyle = `rgba(2,4,10,${depth})`; ctx.fillRect(0, 0, W, H); }
+
+    this.worldHud(ctx, world);
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px ui-monospace, monospace';
+    ctx.fillStyle = 'rgba(124,255,90,0.7)';
+    ctx.fillText(VERSION, 12, H - 10);
+  }
+
+  private terrain(ctx: CanvasRenderingContext2D, world: World): void {
+    const g = world.grid;
+    const cell = g.cell;
+    const x0 = Math.max(0, Math.floor(world.camera.x / cell));
+    const x1 = Math.min(g.cols - 1, Math.ceil((world.camera.x + W) / cell));
+    const y0 = Math.max(0, Math.floor(world.camera.y / cell));
+    const y1 = Math.min(g.rows - 1, Math.ceil((world.camera.y + H) / cell));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const m = g.at(x, y);
+        if (m === Mat.Empty) continue;
+        ctx.fillStyle = MAT_COLORS[m];
+        ctx.fillRect(x * cell, y * cell, cell, cell);
+      }
+    }
+  }
+
+  private worldHud(ctx: CanvasRenderingContext2D, world: World): void {
+    ctx.textAlign = 'left';
+    ctx.font = '14px ui-monospace, monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('INVENTORY', 16, 28);
+    let i = 0;
+    ctx.font = '13px ui-monospace, monospace';
+    for (const [m, n] of world.inventory) {
+      const y = 50 + i * 20;
+      ctx.fillStyle = MAT_COLORS[m];
+      ctx.fillRect(16, y - 11, 13, 13);
+      ctx.fillStyle = '#cbd';
+      ctx.fillText(`${MATERIALS[m as Mat].name}  x${n}`, 36, y);
+      i++;
+    }
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '13px ui-monospace, monospace';
+    ctx.fillText('move A/D · jump W (×2) · DIG: hold F or aim+LMB · Z evolve (burrower digs big) · M menu', W / 2, H - 14);
+  }
+
+  // ---- arena --------------------------------------------------------------
 
   private background(ctx: CanvasRenderingContext2D): void {
     const g = ctx.createLinearGradient(0, 0, 0, H);

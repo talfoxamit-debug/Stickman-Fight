@@ -22,7 +22,7 @@ export interface FxSink {
 }
 
 export type MatchState = 'intro' | 'fight' | 'roundover' | 'matchover' | 'prep';
-export type GameMode = 'versus' | 'solo' | 'sandbox' | 'survival';
+export type GameMode = 'versus' | 'solo' | 'sandbox' | 'survival' | 'world';
 
 const FIGHTER_SETUP = [
   { color: '#22e3ff', accent: '#aef9ff', name: 'P1', weaponIndex: 0 },

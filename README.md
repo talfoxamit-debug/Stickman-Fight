@@ -100,6 +100,10 @@ Pick from the **main menu** (press `1`/`2`/`3`):
 - **Survival** ✅ — wave-based extraction: fight escalating zombies, earn XP/loot,
   **level up** (persistent), **evolve** (`Z`: winged flier / digger / titan), and
   **extract** at wave 6 to bank your loot.
+- **World (Terraria-style)** 🟡 *early* — a large **generated world** (surface, dirt,
+  stone, caves, ore veins, trees) you **explore with a scrolling camera**, walk across
+  terrain, and **dig** for resources. (Stage 1: traversal + mining + inventory; monsters,
+  crafting, and biomes coming next.)
 
 Planned: **Campaign** (themed elemental bosses), crafting/skill-trees, more evolution
 branches, spells, and the full Terraria-style **open world** layer on top of Survival.
