@@ -9,6 +9,9 @@ const B = CFG.body;
 const W = CFG.view.width;
 const H = CFG.view.height;
 
+// Bump this whenever behaviour changes so you can confirm a fresh build is live.
+const VERSION = 'v0.4 · moveset (light/heavy/stab + combos)';
+
 const PART_DIMS: Record<PartName, { len: number; thick: number }> = {
   head: { len: B.headRadius * 2, thick: B.headRadius * 2 },
   torso: { len: B.torso.h, thick: B.torso.w },
@@ -46,6 +49,12 @@ export class Renderer {
 
     this.hud(ctx, match);
     this.banner(ctx, match, paused);
+
+    // Version stamp, bottom-left (confirms a fresh deploy is live).
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px ui-monospace, monospace';
+    ctx.fillStyle = 'rgba(124,255,90,0.7)';
+    ctx.fillText(VERSION, 12, H - 10);
   }
 
   // ---- world --------------------------------------------------------------

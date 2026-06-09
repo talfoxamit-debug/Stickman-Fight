@@ -184,20 +184,42 @@ export class Match {
     const mul = oMeta.kind === 'weapon' ? CFG.combat.weaponMul : CFG.combat.bodyMul;
     const massFactor = clamp(other.mass / 1.0, 0.6, 2.2);
     const raw = (speed - CFG.combat.impactThreshold) * CFG.combat.damageScale * mul * massFactor;
-    const dmg = Math.min(raw, CFG.combat.maxHitDamage);
+    let dmg = Math.min(raw, CFG.combat.maxHitDamage);
     if (dmg <= 0) return;
+
+    // A weapon swung as part of an attack scales damage + applies knockback.
+    let knock = 0;
+    if (oMeta.kind === 'weapon' && oMeta.fighterId >= 0) {
+      const pow = this.fighters[oMeta.fighterId].attackPower();
+      dmg *= pow.dmgMul;
+      knock = pow.knock;
+    }
 
     const fighter = this.fighters[tMeta.fighterId];
     const applied = fighter.damagePart(tMeta.part, dmg, now);
     if (applied > 0) {
+      if (knock > 0) this.applyKnockback(fighter, other, knock);
       const cx = (target.position.x + other.position.x) / 2;
       const cy = (target.position.y + other.position.y) / 2;
       const color = oMeta.kind === 'weapon' ? '#fff2a8' : '#ff6b6b';
       this.fx.impact(cx, cy, applied, color);
       if (applied > 10) {
-        this.fx.shake(Math.min(14, applied * 0.5));
+        this.fx.shake(Math.min(18, applied * 0.5));
         this.hitstopSteps = Math.max(this.hitstopSteps, applied > 22 ? 4 : 2);
       }
+    }
+  }
+
+  /** Shove the whole target away from the attacking weapon (heavier on big attacks). */
+  private applyKnockback(target: Fighter, source: Matter.Body, knock: number): void {
+    const c = target.torsoBody.position;
+    let nx = c.x - source.position.x;
+    let ny = c.y - source.position.y;
+    const d = Math.hypot(nx, ny) || 1;
+    nx = nx / d;
+    ny = ny / d - 0.4; // bias upward for a satisfying pop
+    for (const b of target.bodies()) {
+      Body.setVelocity(b, { x: b.velocity.x + nx * knock, y: b.velocity.y + ny * knock });
     }
   }
 

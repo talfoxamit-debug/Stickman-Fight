@@ -50,9 +50,16 @@ sim tests), `npm run preview` (serve the build).
 
 Global: **`B`** toggle P2 bot (play solo) · **`R`** rematch · **`P`** pause.
 
+**Moveset (one attack key):**
+- **Tap = light combo** → 3-hit chain: **slash → backslash → stab** (the thrust has reach).
+  Keep tapping within the combo window to chain it.
+- **Hold = heavy** → a telegraphed wind-up, then a big **overhead smash** with knockback
+  and ~1.85× damage. Release to unleash.
+
 > **Tip — limb tactics:** smash an arm to disarm your opponent (the weapon drops — grab
 > it!), break both legs to cripple their movement, or land sustained head hits for a
-> decapitation KO. Or just launch them clean over the railing for a ring-out.
+> decapitation KO. Use the **stab** for reach, the **heavy** to launch them over the
+> railing for a ring-out.
 
 > Combat feel (PD-controlled "active ragdoll") is tuned via `src/config.ts` — every
 > knob (gravity, swing speed, joint integrity, damage) lives there for easy playtesting.

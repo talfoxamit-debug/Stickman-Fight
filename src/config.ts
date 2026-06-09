@@ -44,9 +44,6 @@ export const CFG = {
     rightGain: 0.2, // torso self-righting strength
     rightBlend: 0.18,
     rightMaxVel: 0.18,
-    swingCockSpeed: 0.8, // backswing speed during anticipation
-    swingWhipSpeed: 1.5, // forward strike speed (=> weapon momentum). Faster = snappier
-    swingBlend: 0.55,
     // "Stand support": buoy the torso to standing height while grounded so the
     // figure stands tall on its legs instead of sinking to the floor.
     standHeight: 110, // torso-center height above the floor when standing
@@ -62,17 +59,26 @@ export const CFG = {
   },
 
   combat: {
-    swingAnticipateMs: 75, // quick cock-back "tell"
-    swingStrikeMs: 130, // fast forward strike (the damage window)
-    swingCooldownMs: 380,
     perPartHitCooldownMs: 150,
-    // Damage = (impactSpeed - threshold) * scale * weapon/bodyMul.
+    // Damage = (impactSpeed - threshold) * scale * weapon/bodyMul, capped, then x dmgMul.
     impactThreshold: 4.0,
     damageScale: 1.15,
     weaponMul: 2.4,
     bodyMul: 0.8,
-    maxHitDamage: 38, // cap a single blow so fights stay readable (no one-shots)
+    maxHitDamage: 34, // base per-hit cap (before the per-attack dmgMul)
     coreDamageFrac: 0.6, // fraction of a torso/head hit that drains core HP
+
+    // Moveset. A slash/heavy rotates the whole arm+weapon rigidly about the shoulder
+    // (constraint-consistent => a real fast whip); a stab thrusts the weapon forward.
+    comboWindowMs: 540, // keep tapping within this to advance the light combo
+    chargeMs: 330, // hold the attack key >= this => heavy
+    cockOmega: 0.24, // backswing angular velocity during a slash/heavy anticipation
+    stabSpeed: 25, // forward thrust speed of the weapon/hand during a stab
+    // antMs = anticipation, strikeMs = strike window, omega = strike spin (slash/heavy),
+    // lunge = forward hop, dmgMul/knock = damage scale + knockback impulse.
+    light: { antMs: 60, strikeMs: 120, cooldownMs: 260, omega: 0.55, lunge: 2.2, dmgMul: 1.0, knock: 2 },
+    stab: { antMs: 85, strikeMs: 110, cooldownMs: 320, omega: 0.0, lunge: 5.5, dmgMul: 1.2, knock: 3 },
+    heavy: { antMs: 230, strikeMs: 175, cooldownMs: 600, omega: 0.7, lunge: 3.2, dmgMul: 1.85, knock: 9 },
   },
 
   // Joint integrity (HP). 0 => the joint snaps and the limb (+ any held weapon) detaches.

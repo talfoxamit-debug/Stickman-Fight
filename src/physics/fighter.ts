@@ -16,6 +16,21 @@ interface Joint {
   broken: boolean;
 }
 
+type AttackMotion = 'slash' | 'stab' | 'heavy';
+
+interface ActiveAttack {
+  motion: AttackMotion;
+  dir: number; // swing direction (±facing)
+  start: number;
+  antMs: number; // anticipation window
+  strikeMs: number; // strike window
+  omega: number; // strike spin for slash/heavy
+  lunge: number;
+  dmgMul: number;
+  knock: number;
+  lunged: boolean;
+}
+
 const B = CFG.body;
 
 /** One ragdoll stickman with active-ragdoll posing and breakable joints. */
@@ -46,8 +61,11 @@ export class Fighter {
   private prevJump = false;
   private prevAttack = false;
   private jumpReadyAt = 0;
-  private swingStart = 0;
-  private swingUntil = 0;
+  private attack: ActiveAttack | null = null;
+  private comboStep = 0;
+  private comboResetAt = 0;
+  private attackHeldSince = -1;
+  private heavyArmed = false;
   private swingCooldownUntil = 0;
   private walkPhase = 0;
   private walking = false;
@@ -236,16 +254,125 @@ export class Fighter {
       }
     }
 
-    // Attack -> start a swing (rising edge, has intact weapon arm + weapon, off cooldown).
-    const armOk = !this.isBroken('upperArmR') && !this.isBroken('lowerArmR');
-    if (input.attack && !this.prevAttack && this.hasWeapon() && armOk && now >= this.swingCooldownUntil) {
-      this.swingStart = now;
-      this.swingUntil = now + CFG.combat.swingAnticipateMs + CFG.combat.swingStrikeMs;
-      this.swingCooldownUntil = now + CFG.combat.swingCooldownMs;
-    }
-    this.prevAttack = input.attack;
-
+    this.handleAttackInput(now, input);
     this.poseAndDrive(now);
+  }
+
+  // ---- attacks ------------------------------------------------------------
+
+  /** Tap = light combo (slash -> backslash -> stab); hold past chargeMs = heavy. */
+  private handleAttackInput(now: number, input: PlayerInput): void {
+    const armOk = !this.isBroken('upperArmR') && !this.isBroken('lowerArmR');
+    const ready = this.hasWeapon() && armOk && !this.koed;
+    const C = CFG.combat;
+    if (now > this.comboResetAt) this.comboStep = 0;
+
+    const a = input.attack;
+    if (a && !this.prevAttack) {
+      this.attackHeldSince = now;
+      this.heavyArmed = false;
+    }
+    // Heavy fires once the key has been held long enough.
+    if (a && ready && !this.heavyArmed && !this.attack && this.attackHeldSince >= 0 &&
+        now - this.attackHeldSince >= C.chargeMs && now >= this.swingCooldownUntil) {
+      this.startHeavy(now);
+      this.heavyArmed = true;
+    }
+    // Light combo fires on release of a short tap.
+    if (!a && this.prevAttack) {
+      if (!this.heavyArmed && ready && now >= this.swingCooldownUntil &&
+          this.attackHeldSince >= 0 && now - this.attackHeldSince < C.chargeMs) {
+        this.startLightCombo(now);
+      }
+      this.attackHeldSince = -1;
+    }
+    this.prevAttack = a;
+  }
+
+  private startLightCombo(now: number): void {
+    const C = CFG.combat;
+    const f = this.facing;
+    const step = this.comboStep;
+    if (step === 2) {
+      const s = C.stab;
+      this.attack = { motion: 'stab', dir: f, start: now, antMs: s.antMs, strikeMs: s.strikeMs, omega: 0, lunge: s.lunge, dmgMul: s.dmgMul, knock: s.knock, lunged: false };
+      this.swingCooldownUntil = now + s.cooldownMs;
+    } else {
+      const l = C.light;
+      const dir = step === 0 ? f : -f; // forehand slash, then backhand
+      this.attack = { motion: 'slash', dir, start: now, antMs: l.antMs, strikeMs: l.strikeMs, omega: l.omega, lunge: l.lunge, dmgMul: l.dmgMul, knock: l.knock, lunged: false };
+      this.swingCooldownUntil = now + l.cooldownMs;
+    }
+    this.comboStep = (step + 1) % 3;
+    this.comboResetAt = now + C.comboWindowMs;
+  }
+
+  private startHeavy(now: number): void {
+    const h = CFG.combat.heavy;
+    this.attack = { motion: 'heavy', dir: this.facing, start: now, antMs: h.antMs, strikeMs: h.strikeMs, omega: h.omega, lunge: h.lunge, dmgMul: h.dmgMul, knock: h.knock, lunged: false };
+    this.swingCooldownUntil = now + h.cooldownMs;
+    this.comboStep = 0;
+  }
+
+  /** Power exposed to the damage system for the current attack (or neutral). */
+  attackPower(): { dmgMul: number; knock: number } {
+    return this.attack ? { dmgMul: this.attack.dmgMul, knock: this.attack.knock } : { dmgMul: 1, knock: 0 };
+  }
+
+  isCharging(now: number): boolean {
+    return this.prevAttack && !this.heavyArmed && !this.attack && this.attackHeldSince >= 0 &&
+      now - this.attackHeldSince >= 110 && this.hasWeapon();
+  }
+
+  private attackEnd(): number {
+    return this.attack ? this.attack.start + this.attack.antMs + this.attack.strikeMs : 0;
+  }
+
+  private executeAttack(now: number): void {
+    const atk = this.attack!;
+    const striking = now - atk.start >= atk.antMs;
+    if (striking && !atk.lunged) {
+      const torso = this.parts.torso;
+      Body.setVelocity(torso, { x: torso.velocity.x + atk.dir * atk.lunge, y: torso.velocity.y });
+      atk.lunged = true;
+    }
+    if (atk.motion === 'stab') {
+      if (striking) this.stabForward(atk.dir);
+      else this.swingArm(-atk.dir * CFG.combat.cockOmega);
+    } else {
+      const omega = striking ? atk.dir * atk.omega : -atk.dir * CFG.combat.cockOmega;
+      this.swingArm(omega);
+    }
+  }
+
+  /** Rotate the whole arm+weapon rigidly about the shoulder (constraint-consistent). */
+  private swingArm(omega: number): void {
+    const torso = this.parts.torso;
+    const a = -(CFG.body.torso.h / 2 - 10); // shoulder anchor (torso-local y, up = negative)
+    const px = torso.position.x - a * Math.sin(torso.angle);
+    const py = torso.position.y + a * Math.cos(torso.angle);
+    const cap = CFG.sim.maxLinearSpeed * 0.78;
+    const parts: Matter.Body[] = [this.parts.upperArmR, this.parts.lowerArmR];
+    if (this.weapon) parts.push(this.weapon.body);
+    for (const b of parts) {
+      let vx = -omega * (b.position.y - py);
+      let vy = omega * (b.position.x - px);
+      const sp = Math.hypot(vx, vy);
+      if (sp > cap) { vx = (vx / sp) * cap; vy = (vy / sp) * cap; }
+      Body.setVelocity(b, { x: vx, y: vy });
+      Body.setAngularVelocity(b, omega);
+    }
+  }
+
+  /** Thrust the hand + weapon straight forward; the arm extends, the tip leads. */
+  private stabForward(dir: number): void {
+    const v = CFG.combat.stabSpeed;
+    Body.setVelocity(this.parts.lowerArmR, { x: dir * v, y: this.parts.lowerArmR.velocity.y });
+    Body.setVelocity(this.parts.upperArmR, { x: dir * v * 0.55, y: this.parts.upperArmR.velocity.y });
+    if (this.weapon) Body.setVelocity(this.weapon.body, { x: dir * v, y: this.weapon.body.velocity.y });
+    // Point the arm forward so it reads as a thrust rather than a flail.
+    this.driveAngle('lowerArmR', -dir * 1.45, CFG.control.poseGain * 2.5, 0.5, 0.9);
+    this.driveAngle('upperArmR', -dir * 1.2, CFG.control.poseGain * 2.5, 0.5, 0.9);
   }
 
   /** Compute target pose angles + apply active-ragdoll steering (walk cycle + swing). */
@@ -284,29 +411,27 @@ export class Fighter {
     // Torso self-righting (keep upright).
     this.driveAngle('torso', 0, c.rightGain, c.rightBlend, c.rightMaxVel);
 
-    // Weapon arm: 3-phase swing (cock-back -> fast strike), else settle to guard.
-    const elapsed = now - this.swingStart;
-    const swinging = now < this.swingUntil;
-    if (swinging && !this.isBroken('upperArmR') && !this.isBroken('lowerArmR')) {
-      const striking = elapsed >= CFG.combat.swingAnticipateMs;
-      const spin = striking ? f * c.swingWhipSpeed : -f * c.swingCockSpeed;
-      this.driveSpin('upperArmR', spin, c.swingBlend);
-      this.driveSpin('lowerArmR', spin * 1.15, c.swingBlend);
+    // Weapon arm: run the active attack, hold a charged-heavy telegraph, or guard.
+    const armOk = !this.isBroken('upperArmR') && !this.isBroken('lowerArmR');
+    if (this.attack && now >= this.attackEnd()) this.attack = null;
+    const attacking = this.attack !== null && armOk;
+    const charging = this.isCharging(now) && armOk;
+    if (attacking) {
+      this.executeAttack(now);
+    } else if (charging) {
+      // Telegraph: cock the weapon arm back and up.
+      this.driveAngle('upperArmR', -2.1 * f, c.poseGain * 2, c.poseBlend, c.poseMaxVel * 2.4);
+      this.driveAngle('lowerArmR', -1.3 * f, c.poseGain * 2, c.poseBlend, c.poseMaxVel * 2.4);
     }
 
     // Drive all remaining (non-broken) segments toward their target pose.
+    const handled = attacking || charging;
     for (const p of Object.keys(this.targets) as PartName[]) {
       if (p === 'torso' || this.isBroken(p)) continue;
-      if (swinging && (p === 'upperArmR' || p === 'lowerArmR')) continue; // driven above
+      if (handled && (p === 'upperArmR' || p === 'lowerArmR')) continue; // driven above
       const target = this.targets[p] + (p === 'head' ? this.parts.torso.angle : 0);
       this.driveAngle(p, target, c.poseGain, c.poseBlend, c.poseMaxVel);
     }
-  }
-
-  /** Steer a segment's angular velocity directly toward `vel` (for fast swings). */
-  private driveSpin(part: PartName, vel: number, blend: number): void {
-    const body = this.parts[part];
-    Body.setAngularVelocity(body, body.angularVelocity + (vel - body.angularVelocity) * blend);
   }
 
   /**
