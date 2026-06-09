@@ -126,8 +126,9 @@ lands; ship it as a vertical slice (8a) first. Full design:
 - [ ] **8d — Content & chemistry monsters:** elemental archetypes + bosses, more biomes,
       day/night escalation, secure-pocket + down/loot-drop rules
 - [ ] **8e — Spells & consumables:** spell system + tomes, potions/grenades/traps, base hub
-- [x] **8f — Evolution branches:** Aviator (flight) + Burrower (dig) + Titan (tank),
-      cycle with Z; Mutant/Tinker/Beast/Hydra still TODO
+- [x] **8f — Evolution branches:** 6 implemented (cycle with Z) — Aviator (flight),
+      Burrower (dig/tunnel), Titan (tank), Beast (triple-jump+speed), Mutant (chemistry
+      immune + acid aura), Tinker (rocket jumps). Hydra (multi-arm) still TODO
 - [ ] Balancing pass on the economy (loot, craft costs, XP, evolution points)
 
 **Exit:** deploy into the wasteland, scavenge & fight monsters, extract with loot, level

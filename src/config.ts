@@ -95,6 +95,9 @@ export const CFG = {
     digCarve: 22, // Burrower tunnel radius (vs default ~8) through powder terrain
     burrowSpeedMul: 1.18, // Burrower ground speed bonus
     titanScale: 1.35, // Titan body-size multiplier (visual + reach)
+    beastSpeedMul: 1.28, // Beast ground speed (+ triple jump)
+    mutantAura: 6, // Mutant acid-aura paint radius (px); also immune to chemistry
+    tinkerJumpMul: 1.45, // Tinker rocket-jump strength
   },
 
   combat: {

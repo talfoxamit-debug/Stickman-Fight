@@ -8,8 +8,8 @@ import { ARMOR, DEFAULT_LOADOUT, makeArmor, type ArmorPiece, type DamageType } f
 
 const { Bodies, Body, Composite, Constraint } = Matter;
 
-export type Evolution = 'none' | 'aviator' | 'burrower' | 'titan';
-export const EVOLUTIONS: Evolution[] = ['none', 'aviator', 'burrower', 'titan'];
+export type Evolution = 'none' | 'aviator' | 'burrower' | 'titan' | 'beast' | 'mutant' | 'tinker';
+export const EVOLUTIONS: Evolution[] = ['none', 'aviator', 'burrower', 'titan', 'beast', 'mutant', 'tinker'];
 
 interface Joint {
   name: string;
@@ -261,7 +261,7 @@ export class Fighter {
 
     if (this.grounded) {
       this.lastGroundedAt = now;
-      this.airJumps = C.doubleJump ? 1 : 0;
+      this.airJumps = this.evolution === 'beast' ? 2 : C.doubleJump ? 1 : 0;
     }
 
     // Staggered (just got parried): briefly stunned, no control.
@@ -304,6 +304,7 @@ export class Fighter {
       const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
       let speed = C.runSpeed * this.speedMul * (legsLost >= 2 ? C.crippleSpeedMul : 1);
       if (this.evolution === 'burrower') speed *= CFG.evolution.burrowSpeedMul;
+      if (this.evolution === 'beast') speed *= CFG.evolution.beastSpeedMul;
       if (this.blocking) speed *= C.blockMoveMul;
       if (!this.grounded) speed *= C.airControl + 0.65;
       if (dir !== 0) {
@@ -374,10 +375,11 @@ export class Fighter {
   }
 
   private doJump(speed: number): void {
+    const s = this.evolution === 'tinker' ? speed * CFG.evolution.tinkerJumpMul : speed;
     for (const p of Object.keys(this.parts) as PartName[]) {
       if (this.isBroken(p)) continue;
       const b = this.parts[p];
-      Body.setVelocity(b, { x: b.velocity.x, y: -speed });
+      Body.setVelocity(b, { x: b.velocity.x, y: -s });
     }
     this.grounded = false;
   }

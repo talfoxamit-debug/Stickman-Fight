@@ -280,23 +280,24 @@ export class Match {
     const g = this.grid;
     for (const f of this.fighters) {
       if (f.koed) continue;
+      const mutant = f.evolution === 'mutant'; // immune to chemistry; exudes acid
       for (const b of f.bodies()) {
         const meta = (b as unknown as { meta?: BodyMeta }).meta;
         if (!meta?.part) continue;
         // Electrified water/metal (or a spark): stun + shock damage. Chains brutally.
-        if (g.isChargedPx(b.position.x, b.position.y)) {
+        if (!mutant && g.isChargedPx(b.position.x, b.position.y)) {
           f.stagger(now, 200);
           f.damagePart(meta.part, 3, now, 'shock');
         }
         const m = g.matAtPx(b.position.x, b.position.y);
         if (m === Mat.Fire || m === Mat.Ember) {
-          f.damagePart(meta.part, 5, now, 'heat');
+          if (!mutant) f.damagePart(meta.part, 5, now, 'heat');
           Body.setVelocity(b, { x: b.velocity.x, y: b.velocity.y - 0.4 });
         } else if (m === Mat.Lava) {
-          f.damagePart(meta.part, 11, now, 'heat');
+          if (!mutant) f.damagePart(meta.part, 11, now, 'heat');
           Body.setVelocity(b, { x: b.velocity.x * 0.96, y: b.velocity.y - 0.5 });
         } else if (m === Mat.Acid) {
-          f.damagePart(meta.part, 7, now, 'acid');
+          if (!mutant) f.damagePart(meta.part, 7, now, 'acid');
         } else if (m === Mat.Water) {
           // Buoyancy + drag (float, slowed).
           Body.setVelocity(b, { x: b.velocity.x * 0.9, y: b.velocity.y * 0.86 - 0.5 });
@@ -308,6 +309,11 @@ export class Match {
         const burrow = f.evolution === 'burrower';
         const r = burrow ? CFG.evolution.digCarve : 8;
         g.carvePx(b.position.x - r, b.position.y - r, b.position.x + r, b.position.y + r, burrow);
+      }
+      // Mutants leave a corrosive acid aura around themselves.
+      if (mutant) {
+        const t = f.torsoBody.position;
+        g.paintPx(t.x, t.y, Mat.Acid, CFG.evolution.mutantAura);
       }
     }
   }

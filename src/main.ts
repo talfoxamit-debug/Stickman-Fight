@@ -138,7 +138,7 @@ function drawBrush(): void {
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
   ctx.fillText(`brush: ${bMat.name}  (1-0 pick · Q paint · C clear · M menu)`, 32, CFG.view.height - 33);
   ctx.fillStyle = 'rgba(124,255,90,0.85)';
-  ctx.fillText(`P1 evolution: ${evoLabel}  (Z to morph: aviator=fly · burrower=dig · titan=tank)`, 32, CFG.view.height - 56);
+  ctx.fillText(`P1 evolution: ${evoLabel}  (Z: fly/dig/tank/beast/mutant/tinker)`, 32, CFG.view.height - 56);
   ctx.restore();
 }
 

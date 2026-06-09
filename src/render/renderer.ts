@@ -13,7 +13,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.15 · survival depth: monster types + upgrade shop';
+const VERSION = 'v0.16 · 7 evolution branches (beast/mutant/tinker added)';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -195,6 +195,9 @@ export class Renderer {
 
   private fighter(ctx: CanvasRenderingContext2D, f: Fighter): void {
     if (f.evolution === 'aviator') this.wings(ctx, f);
+    if (f.evolution === 'mutant') this.mutantAura(ctx, f);
+    if (f.evolution === 'beast') this.tail(ctx, f);
+    if (f.evolution === 'tinker') this.boosters(ctx, f);
     const ik = f.ikLegs();
     const drawIKL = ik.valid && !f.isBroken('upperLegL') && !f.isBroken('lowerLegL');
     const drawIKR = ik.valid && !f.isBroken('upperLegR') && !f.isBroken('lowerLegR');
@@ -340,6 +343,57 @@ export class Renderer {
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  private mutantAura(ctx: CanvasRenderingContext2D, f: Fighter): void {
+    const t = f.torsoBody.position;
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#7ef046';
+    ctx.shadowColor = '#7ef046';
+    ctx.shadowBlur = 26;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, 40, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private tail(ctx: CanvasRenderingContext2D, f: Fighter): void {
+    const t = f.torsoBody.position;
+    const wag = Math.sin(Date.now() / 110) * 9;
+    const bx = t.x - f.facing * 26;
+    ctx.save();
+    ctx.strokeStyle = f.accent;
+    ctx.shadowColor = f.color;
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(t.x, t.y + 16);
+    ctx.quadraticCurveTo(t.x - f.facing * 16, t.y + 30 + wag, bx, t.y + 22 + wag);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private boosters(ctx: CanvasRenderingContext2D, f: Fighter): void {
+    const t = f.torsoBody;
+    const px = t.position.x - f.facing * 9;
+    const py = t.position.y;
+    ctx.save();
+    ctx.fillStyle = '#8a8f9c';
+    ctx.fillRect(px - 4, py - 6, 8, 18);
+    if (t.velocity.y < -1) {
+      ctx.fillStyle = '#ffcf4d';
+      ctx.shadowColor = '#ff7a18';
+      ctx.shadowBlur = 14;
+      ctx.beginPath();
+      ctx.moveTo(px - 4, py + 12);
+      ctx.lineTo(px + 4, py + 12);
+      ctx.lineTo(px, py + 22 + Math.random() * 9);
+      ctx.closePath();
+      ctx.fill();
     }
     ctx.restore();
   }
