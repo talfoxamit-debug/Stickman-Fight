@@ -21,7 +21,7 @@ export interface FxSink {
   shake(amount: number): void;
 }
 
-export type MatchState = 'intro' | 'fight' | 'roundover' | 'matchover';
+export type MatchState = 'intro' | 'fight' | 'roundover' | 'matchover' | 'prep';
 export type GameMode = 'versus' | 'solo' | 'sandbox' | 'survival';
 
 const FIGHTER_SETUP = [
@@ -650,9 +650,17 @@ export class Match {
   private beginSurvivalRun(): void {
     this.botEnabled = true;
     this.matchWinner = -1;
-    this.state = 'intro';
-    this.message = `WAVE ${this.wave}`;
-    this.stateTimer = 1100;
+    this.state = 'prep'; // hub: buy upgrades + pick evolution, then deploy
+    this.message = 'PREPARE';
+  }
+
+  /** Leave the Survival hub and start wave 1. */
+  deploy(): void {
+    if (this.mode === 'survival' && this.state === 'prep') {
+      this.state = 'intro';
+      this.message = `WAVE ${this.wave}`;
+      this.stateTimer = 900;
+    }
   }
 
   private respawnMonster(): void {
@@ -676,6 +684,7 @@ export class Match {
 
   private advanceSurvival(now: number): void {
     this.simNow = now;
+    if (this.state === 'prep') return; // waiting in the hub for deploy
     this.stateTimer -= CFG.sim.fixedDt;
     const [player, monster] = this.fighters;
 

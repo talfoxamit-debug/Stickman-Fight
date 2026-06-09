@@ -53,9 +53,10 @@ function frame(now: number): void {
     if (input.consumePressed('KeyB')) match.toggleBot();
     if (input.consumePressed('KeyC')) match.grid.clear();
     if (input.consumePressed('KeyZ')) evoLabel = match.cyclePlayerEvolution();
-    const inShop = match.mode === 'survival' && match.state === 'matchover';
-    if (inShop) {
+    const inHub = match.mode === 'survival' && (match.state === 'matchover' || match.state === 'prep');
+    if (inHub) {
       for (let i = 0; i < UPGRADES.length; i++) if (input.consumePressed(`Digit${i + 1}`)) match.buyUpgrade(UPGRADES[i].key);
+      if (match.state === 'prep' && (input.consumePressed('Enter') || input.consumePressed('Space'))) match.deploy();
     } else {
       for (let d = 0; d < DIGITS.length; d++) if (input.consumePressed(DIGITS[d]) && d < PAINTABLE.length) brush = d;
     }

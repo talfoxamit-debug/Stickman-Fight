@@ -13,7 +13,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.16 · 7 evolution branches (beast/mutant/tinker added)';
+const VERSION = 'v0.17 · survival prep hub (buy/evolve/deploy)';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -64,7 +64,7 @@ export class Renderer {
 
     this.hud(ctx, match);
     this.banner(ctx, match, paused);
-    if (match.mode === 'survival' && match.state === 'matchover') this.survivalShop(ctx, match);
+    if (match.mode === 'survival' && (match.state === 'matchover' || match.state === 'prep')) this.survivalShop(ctx, match);
 
     // Version stamp, bottom-left (confirms a fresh deploy is live).
     ctx.textAlign = 'left';
@@ -618,10 +618,16 @@ export class Renderer {
 
   private survivalShop(ctx: CanvasRenderingContext2D, match: Match): void {
     const m = match.meta;
+    const prep = match.state === 'prep';
     ctx.textAlign = 'center';
+    if (prep) {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 30px ui-monospace, monospace';
+      ctx.fillText('PREPARE FOR DEPLOYMENT', W / 2, H / 2 - 30);
+    }
     ctx.fillStyle = '#ffcf4d';
-    ctx.font = 'bold 22px ui-monospace, monospace';
-    ctx.fillText(`UPGRADES  ·  stash: ${m.stash}`, W / 2, H / 2 + 60);
+    ctx.font = 'bold 20px ui-monospace, monospace';
+    ctx.fillText(`stash: ${m.stash}   ·   Lv ${m.level}   ·   evolution: ${match.fighters[0].evolution}`, W / 2, H / 2 + 14);
     ctx.font = '15px ui-monospace, monospace';
     for (let i = 0; i < UPGRADES.length; i++) {
       const u = UPGRADES[i];
@@ -629,11 +635,14 @@ export class Renderer {
       const cost = upgradeCost(lvl);
       const afford = m.stash >= cost;
       ctx.fillStyle = afford ? '#7cff5a' : '#6a6a7a';
-      ctx.fillText(`[${i + 1}] ${u.name} Lv${lvl} — ${u.desc} — ${cost} loot`, W / 2, H / 2 + 92 + i * 26);
+      ctx.fillText(`[${i + 1}] ${u.name} Lv${lvl} — ${u.desc} — ${cost} loot`, W / 2, H / 2 + 46 + i * 26);
     }
     ctx.fillStyle = '#cbb8ff';
     ctx.font = '14px ui-monospace, monospace';
-    ctx.fillText('press 1-4 to buy · R for a new run · M for menu', W / 2, H / 2 + 92 + UPGRADES.length * 26 + 10);
+    const hint = prep
+      ? 'press 1-4 buy · Z pick evolution · ENTER to DEPLOY · M menu'
+      : 'press 1-4 buy · R for a new run · M for menu';
+    ctx.fillText(hint, W / 2, H / 2 + 46 + UPGRADES.length * 26 + 12);
   }
 
   private statusPanel(ctx: CanvasRenderingContext2D, f: Fighter, x: number, align: 'left' | 'right'): void {
