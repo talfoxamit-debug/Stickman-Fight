@@ -21,7 +21,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.22 · world crafting loop — forge/upgrade from loot + materials';
+const VERSION = 'v0.23 · world biomes + treasure chests + deep lava hazard';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -98,6 +98,7 @@ export class Renderer {
     ctx.scale(world.zoom, world.zoom);
     ctx.translate(-world.camera.x, -world.camera.y);
     this.terrain(ctx, world);
+    this.chests(ctx, world);
     for (const m of world.monsters) this.fighter(ctx, m);
     this.fighter(ctx, world.player);
     fx.draw(ctx);
@@ -161,6 +162,21 @@ export class Renderer {
     }
   }
 
+  private chests(ctx: CanvasRenderingContext2D, world: World): void {
+    const cam = world.camera, hw = W / (2 * world.zoom) + 80, hh = H / (2 * world.zoom) + 80;
+    const s = world.grid.cell * 0.9;
+    for (const c of world.grid.chests) {
+      if (Math.abs(c.x - cam.x) > hw || Math.abs(c.y - cam.y) > hh) continue;
+      ctx.save();
+      if (c.looted) { ctx.globalAlpha = 0.4; ctx.fillStyle = '#6b5a2a'; }
+      else { ctx.fillStyle = '#d2aa46'; ctx.shadowColor = '#ffe08a'; ctx.shadowBlur = 18; }
+      ctx.fillRect(c.x - s / 2, c.y - s / 2, s, s);
+      ctx.fillStyle = '#7a5a1e';
+      ctx.fillRect(c.x - s / 2, c.y - 3, s, 6);
+      ctx.restore();
+    }
+  }
+
   private worldHud(ctx: CanvasRenderingContext2D, world: World): void {
     // Player health bar + stats (top-left).
     const p = world.player;
@@ -175,7 +191,7 @@ export class Renderer {
     ctx.textAlign = 'left';
     ctx.font = '12px ui-monospace, monospace';
     ctx.fillText(`HP  ·  slain ${world.kills}  ·  loot ${world.loot}  ·  depth ${world.depth()}`, 20, 50);
-    ctx.fillText(`evolution: ${p.evolution}  (Z)`, 20, 66);
+    ctx.fillText(`${world.grid.biomeAtPx(p.torsoBody.position.x)}  ·  evolution: ${p.evolution} (Z)`, 20, 66);
 
     // Inventory (top-right).
     ctx.textAlign = 'right';

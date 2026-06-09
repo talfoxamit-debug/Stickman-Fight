@@ -22,9 +22,11 @@ export enum Mat {
   Grass,
   Ore,
   Leaves,
+  Snow,
+  Chest,
 }
 
-export const MAT_COUNT = Mat.Leaves + 1;
+export const MAT_COUNT = Mat.Chest + 1;
 
 export enum Cat {
   Empty,
@@ -65,6 +67,8 @@ export const MATERIALS: Record<Mat, MatDef> = {
   [Mat.Grass]: { name: 'Grass', cat: Cat.Solid, rgb: [86, 176, 72], density: 3, flammable: true },
   [Mat.Ore]: { name: 'Ore', cat: Cat.Solid, rgb: [196, 176, 96], density: 4, flammable: false },
   [Mat.Leaves]: { name: 'Leaves', cat: Cat.Solid, rgb: [60, 150, 64], density: 1, flammable: true },
+  [Mat.Snow]: { name: 'Snow', cat: Cat.Solid, rgb: [226, 236, 248], density: 2, flammable: false },
+  [Mat.Chest]: { name: 'Chest', cat: Cat.Solid, rgb: [210, 170, 70], density: 3, flammable: false },
 };
 
 /** Brush palette (order = on-screen selection order, keys 1..9,0). */

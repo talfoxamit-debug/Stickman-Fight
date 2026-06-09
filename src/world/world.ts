@@ -82,6 +82,7 @@ export class World {
     this.blockWalls(this.player);
     for (const m of this.monsters) this.blockWalls(m);
     this.mineWithSwing(now, input);
+    this.worldHazards(now);
     this.handleDeaths(now);
     for (const ev of this.player.soundEvents) this.fx.sound(ev as SoundName);
     this.player.soundEvents.length = 0;
@@ -118,6 +119,30 @@ export class World {
     const mined = this.grid.digPx(px, py, this.grid.cell * (this.player.evolution === 'burrower' ? 2.2 : 1.2));
     for (const [m, n] of mined) this.inventory.set(m, (this.inventory.get(m) ?? 0) + n);
     if (mined.size > 0) this.fx.sound('dig');
+  }
+
+  /** Deep lava burns anyone standing in it; chests reward exploration. */
+  private worldHazards(now: number): void {
+    for (const f of [this.player, ...this.monsters]) {
+      if (f.koed) continue;
+      const t = f.torsoBody;
+      if (this.grid.matAtPx(t.position.x, t.position.y + 26) === Mat.Lava || this.grid.matAtPx(t.position.x, t.position.y) === Mat.Lava) {
+        f.damagePart('torso', 7, now, 'heat');
+        Body.setVelocity(t, { x: t.velocity.x, y: t.velocity.y - 0.6 });
+        if (f === this.player) this.fx.sound('hit', 0.4);
+      }
+    }
+    const p = this.player.torsoBody.position;
+    for (const ch of this.grid.chests) {
+      if (ch.looted || Math.hypot(p.x - ch.x, p.y - ch.y) > this.grid.cell * 1.5) continue;
+      ch.looted = true;
+      const gain = 20 + ((Math.random() * 30) | 0);
+      this.loot += gain;
+      this.inventory.set(Mat.Ore, (this.inventory.get(Mat.Ore) ?? 0) + 2 + ((Math.random() * 3) | 0));
+      this.fx.confetti(ch.x, ch.y);
+      this.fx.sound('parry');
+      this.flash(`TREASURE! +${gain} loot`, now);
+    }
   }
 
   private handleDeaths(now: number): void {
