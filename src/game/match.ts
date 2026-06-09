@@ -3,7 +3,7 @@ import { CFG } from '../config';
 import { clamp, dist } from '../core/util';
 import type { PlayerInput } from '../core/input';
 import { EMPTY_INPUT } from '../core/input';
-import { Fighter } from '../physics/fighter';
+import { Fighter, EVOLUTIONS, type Evolution } from '../physics/fighter';
 import { createWeapon, setWeaponOwner, EMITTER_INDICES, type Weapon } from '../physics/weapon';
 import type { BodyMeta } from '../types';
 import { Bot } from './bot';
@@ -293,8 +293,10 @@ export class Match {
           // Steam vents launch you upward.
           Body.setVelocity(b, { x: b.velocity.x, y: b.velocity.y - 1.2 });
         }
-        // Displace very light materials the body wades through.
-        g.carvePx(b.position.x - 8, b.position.y - 8, b.position.x + 8, b.position.y + 8);
+        // Displace materials the body wades through (Burrowers tunnel through anything).
+        const burrow = f.evolution === 'burrower';
+        const r = burrow ? CFG.evolution.digCarve : 8;
+        g.carvePx(b.position.x - r, b.position.y - r, b.position.x + r, b.position.y + r, burrow);
       }
     }
   }
@@ -527,5 +529,13 @@ export class Match {
 
   toggleBot(): void {
     this.botEnabled = !this.botEnabled;
+  }
+
+  /** Cycle P1's evolution branch (none -> aviator -> burrower -> titan). */
+  cyclePlayerEvolution(): Evolution {
+    const cur = this.fighters[0].evolution;
+    const next = EVOLUTIONS[(EVOLUTIONS.indexOf(cur) + 1) % EVOLUTIONS.length];
+    this.fighters[0].evolution = next;
+    return next;
   }
 }

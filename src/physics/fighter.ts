@@ -8,6 +8,9 @@ import { ARMOR, DEFAULT_LOADOUT, makeArmor, type ArmorPiece, type DamageType } f
 
 const { Bodies, Body, Composite, Constraint } = Matter;
 
+export type Evolution = 'none' | 'aviator' | 'burrower' | 'titan';
+export const EVOLUTIONS: Evolution[] = ['none', 'aviator', 'burrower', 'titan'];
+
 interface Joint {
   name: string;
   child: PartName; // the part that detaches if this joint snaps
@@ -75,6 +78,7 @@ export class Fighter {
   koed = false;
   grounded = false;
   facing: 1 | -1 = 1;
+  evolution: Evolution = 'none';
 
   private targets = {} as Record<PartName, number>;
   private lastHit = {} as Record<PartName, number>;
@@ -297,6 +301,7 @@ export class Fighter {
     } else {
       const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
       let speed = C.runSpeed * (legsLost >= 2 ? C.crippleSpeedMul : 1);
+      if (this.evolution === 'burrower') speed *= CFG.evolution.burrowSpeedMul;
       if (this.blocking) speed *= C.blockMoveMul;
       if (!this.grounded) speed *= C.airControl + 0.65;
       if (dir !== 0) {
@@ -335,6 +340,15 @@ export class Fighter {
       this.jumpingUp = false;
     }
     if (torso.velocity.y >= 0) this.jumpingUp = false;
+    // Aviator flight: hold jump in the air to thrust/hover (whole body so it lifts).
+    if (this.evolution === 'aviator' && !this.grounded && input.jump) {
+      for (const p of Object.keys(this.parts) as PartName[]) {
+        if (this.isBroken(p)) continue;
+        const b = this.parts[p];
+        Body.setVelocity(b, { x: b.velocity.x, y: Math.max(b.velocity.y - CFG.evolution.flyThrust, -CFG.evolution.flyMaxRise) });
+      }
+      this.jumpingUp = false;
+    }
     this.prevJump = input.jump;
 
     // Stand support (skipped during a dodge).
@@ -778,6 +792,7 @@ export class Fighter {
       dmg *= 1 - resist;
       if (ar.hp <= 0) delete this.armor[part];
     }
+    if (this.evolution === 'titan') dmg *= 0.7; // Titans shrug off blows
 
     // Core HP drain when the torso or head is struck.
     if (part === 'torso' || part === 'head') {

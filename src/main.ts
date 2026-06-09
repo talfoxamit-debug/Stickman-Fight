@@ -24,6 +24,7 @@ const DT = CFG.sim.fixedDt;
 const MAX_STEPS = 5; // avoid the "spiral of death" if a frame stalls
 
 let brush = 1; // index into PAINTABLE
+let evoLabel = 'none';
 const DIGITS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'];
 
 const MODES: { key: string; mode: GameMode; label: string; desc: string }[] = [
@@ -49,6 +50,7 @@ function frame(now: number): void {
     if (input.consumePressed('KeyR')) match.restart();
     if (input.consumePressed('KeyB')) match.toggleBot();
     if (input.consumePressed('KeyC')) match.grid.clear();
+    if (input.consumePressed('KeyZ')) evoLabel = match.cyclePlayerEvolution();
     for (let d = 0; d < DIGITS.length; d++) if (input.consumePressed(DIGITS[d]) && d < PAINTABLE.length) brush = d;
     const cur = input.cursor();
     if (cur && input.isDown('KeyQ')) match.grid.paintPx(cur.x, cur.y, PAINTABLE[brush], 16);
@@ -127,7 +129,9 @@ function drawBrush(): void {
   ctx.fillStyle = `rgb(${bMat.rgb[0]},${bMat.rgb[1]},${bMat.rgb[2]})`;
   ctx.fillRect(12, CFG.view.height - 44, 14, 14);
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.fillText(`brush: ${bMat.name}  (1-0 pick · hold Q paint · C clear · M menu)`, 32, CFG.view.height - 33);
+  ctx.fillText(`brush: ${bMat.name}  (1-0 pick · Q paint · C clear · M menu)`, 32, CFG.view.height - 33);
+  ctx.fillStyle = 'rgba(124,255,90,0.85)';
+  ctx.fillText(`P1 evolution: ${evoLabel}  (Z to morph: aviator=fly · burrower=dig · titan=tank)`, 32, CFG.view.height - 56);
   ctx.restore();
 }
 

@@ -12,7 +12,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.12 · foot-planting IK legs (no more ghost gliding)';
+const VERSION = 'v0.13 · evolution branches (aviator/burrower/titan) + knee fix';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -192,6 +192,7 @@ export class Renderer {
   // ---- fighter ------------------------------------------------------------
 
   private fighter(ctx: CanvasRenderingContext2D, f: Fighter): void {
+    if (f.evolution === 'aviator') this.wings(ctx, f);
     const ik = f.ikLegs();
     const drawIKL = ik.valid && !f.isBroken('upperLegL') && !f.isBroken('lowerLegL');
     const drawIKR = ik.valid && !f.isBroken('upperLegR') && !f.isBroken('lowerLegR');
@@ -205,6 +206,7 @@ export class Renderer {
     }
     this.head(ctx, f);
     if (f.weapon) this.weapon(ctx, f.weapon, true);
+    if (f.evolution === 'burrower') this.claws(ctx, f);
 
     // Block guard shimmer: a glowing shield arc in front of the fighter.
     if (f.isBlocking()) {
@@ -237,9 +239,10 @@ export class Renderer {
     const y2 = body.position.y + ay * half;
 
     const health = f.limbHealth(part);
+    const tscale = f.evolution === 'titan' ? CFG.evolution.titanScale : 1;
     ctx.save();
     ctx.lineCap = 'round';
-    ctx.lineWidth = dims.thick;
+    ctx.lineWidth = dims.thick * tscale;
     if (broken) {
       // Severed limb: dark, bloodied, no glow.
       ctx.strokeStyle = '#5a1014';
@@ -316,6 +319,50 @@ export class Renderer {
     }
   }
 
+  private wings(ctx: CanvasRenderingContext2D, f: Fighter): void {
+    const t = f.torsoBody;
+    const flap = Math.sin(Date.now() / 90) * 0.5 + (f.grounded ? 0 : -0.25);
+    ctx.save();
+    ctx.globalAlpha = 0.82;
+    for (const s of [-1, 1]) {
+      ctx.save();
+      ctx.translate(t.position.x, t.position.y - 6);
+      ctx.rotate(s * (0.55 + flap));
+      ctx.fillStyle = f.accent;
+      ctx.shadowColor = f.color;
+      ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(s * 36, -30, s * 54, -4);
+      ctx.quadraticCurveTo(s * 40, 8, 0, 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  private claws(ctx: CanvasRenderingContext2D, f: Fighter): void {
+    for (const side of ['lowerArmL', 'lowerArmR'] as PartName[]) {
+      if (f.isBroken(side)) continue;
+      const b = f.parts[side];
+      const ax = -Math.sin(b.angle), ay = Math.cos(b.angle);
+      const hx = b.position.x + ax * (PART_DIMS[side].len / 2);
+      const hy = b.position.y + ay * (PART_DIMS[side].len / 2);
+      ctx.save();
+      ctx.fillStyle = '#d2d8e2';
+      ctx.shadowColor = '#fff';
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.moveTo(hx, hy);
+      ctx.lineTo(hx + ax * 13 - ay * 4, hy + ay * 13 + ax * 4);
+      ctx.lineTo(hx + ax * 13 + ay * 4, hy + ay * 13 - ax * 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   private ikLeg(
     ctx: CanvasRenderingContext2D,
     f: Fighter,
@@ -323,8 +370,9 @@ export class Renderer {
     pts: { kx: number; ky: number; fx: number; fy: number },
     side: 'L' | 'R',
   ): void {
-    const upThick = PART_DIMS.upperLegL.thick;
-    const loThick = PART_DIMS.lowerLegL.thick;
+    const tscale = f.evolution === 'titan' ? CFG.evolution.titanScale : 1;
+    const upThick = PART_DIMS.upperLegL.thick * tscale;
+    const loThick = PART_DIMS.lowerLegL.thick * tscale;
     this.bone(ctx, hip.x, hip.y, pts.kx, pts.ky, upThick, f.accent, f.color);
     this.bone(ctx, pts.kx, pts.ky, pts.fx, pts.fy, loThick, f.accent, f.color);
     // Armor band on the thigh.

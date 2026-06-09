@@ -85,7 +85,16 @@ export const CFG = {
     stride: 46, // step length (px) before the swing foot plants ahead
     stepLift: 16, // how high the swing foot lifts mid-step (px)
     footSpread: 10, // idle stance width (px from hip center)
-    kneeDir: 1, // knee bend direction (flip to -1 if knees look backwards)
+    kneeDir: -1, // knee bend direction
+  },
+
+  // Evolution branches mutate the ragdoll's abilities (RPG, mainly Survival mode).
+  evolution: {
+    flyThrust: 1.0, // upward accel per frame while an Aviator holds jump airborne
+    flyMaxRise: 7.5, // cap on flight ascent speed
+    digCarve: 22, // Burrower tunnel radius (vs default ~8) through powder terrain
+    burrowSpeedMul: 1.18, // Burrower ground speed bonus
+    titanScale: 1.35, // Titan body-size multiplier (visual + reach)
   },
 
   combat: {

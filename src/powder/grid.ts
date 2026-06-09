@@ -327,15 +327,15 @@ export class PowderGrid {
     for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) { const i = y * this.cols + x; this.mat[i] = m; this.aux[i] = 0; }
   }
 
-  /** Bodies displace light materials they move through (splash/wade). */
-  carvePx(x0: number, y0: number, x1: number, y1: number): void {
+  /** Bodies displace light materials they move through; `all` tunnels through anything. */
+  carvePx(x0: number, y0: number, x1: number, y1: number, all = false): void {
     const cx0 = Math.max(0, Math.floor(x0 / this.cell)), cx1 = Math.min(this.cols - 1, Math.ceil(x1 / this.cell));
     const cy0 = Math.max(0, Math.floor(y0 / this.cell)), cy1 = Math.min(this.rows - 1, Math.ceil(y1 / this.cell));
     for (let y = cy0; y <= cy1; y++) {
       for (let x = cx0; x <= cx1; x++) {
         const i = y * this.cols + x;
         const m = this.mat[i] as Mat;
-        if (m === Mat.Sand || m === Mat.Smoke || m === Mat.Steam) {
+        if (all || m === Mat.Sand || m === Mat.Smoke || m === Mat.Steam) {
           this.mat[i] = Mat.Empty; this.aux[i] = 0;
         }
       }
