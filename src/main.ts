@@ -31,6 +31,7 @@ const MODES: { key: string; mode: GameMode; label: string; desc: string }[] = [
   { key: '1', mode: 'versus', label: 'VERSUS (2P)', desc: 'Two humans, one keyboard. Best of 3.' },
   { key: '2', mode: 'solo', label: 'SOLO vs AI', desc: 'Fight the bot. P1 keyboard or mouse.' },
   { key: '3', mode: 'sandbox', label: 'SANDBOX / LAB', desc: 'Endless brawl + free chemistry painting.' },
+  { key: '4', mode: 'survival', label: 'SURVIVAL', desc: 'Wave-based extraction: loot, level up, evolve (Z), extract @ wave 6.' },
 ];
 
 function startMode(mode: GameMode): void {

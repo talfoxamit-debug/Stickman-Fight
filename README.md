@@ -95,9 +95,11 @@ input · localStorage saves. No backend; runs in any modern browser and deploys 
 Pick from the **main menu** (press `1`/`2`/`3`):
 
 - **Versus (local 2P)** ✅ — two humans, one keyboard, best of 3.
-- **Solo vs AI** ✅ — fight the bot (which now blocks, dodges, and uses heavies).
+- **Solo vs AI** ✅ — fight the bot (which blocks, dodges, and uses heavies).
 - **Sandbox / Lab** ✅ — endless brawl + free chemistry painting to experiment.
+- **Survival** ✅ — wave-based extraction: fight escalating zombies, earn XP/loot,
+  **level up** (persistent), **evolve** (`Z`: winged flier / digger / titan), and
+  **extract** at wave 6 to bank your loot.
 
-Planned: **Campaign** (themed elemental bosses + unlocks), **Trials**, and the big
-**Survival / Expedition** mode (Terraria-style world + Arc-Raiders extraction runs,
-monsters, crafting, RPG leveling, and **evolution branches** — winged flier, digger…).
+Planned: **Campaign** (themed elemental bosses), crafting/skill-trees, more evolution
+branches, spells, and the full Terraria-style **open world** layer on top of Survival.

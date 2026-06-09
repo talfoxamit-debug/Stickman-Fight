@@ -117,17 +117,17 @@ RPG + evolution branches. **Reuses** the Phase 1–5 engine. Can start once Phas
 lands; ship it as a vertical slice (8a) first. Full design:
 [SURVIVAL.md](SURVIVAL.md) + [EVOLUTION.md](EVOLUTION.md).
 
-- [ ] **8a — Run skeleton:** one CA-terrain zone, deploy→explore→extract, basic inventory
-      + Stash, one zombie type, melee only. *First playable run.*
-- [ ] **8b — Harvest & craft:** monster drops → resources → craft weapon/armor at base;
-      blueprints + recipes
-- [ ] **8c — RPG meta:** XP/level, stats, skill trees, gear upgrade/tiering, survival save slot
+- [x] **8a — Run skeleton:** Survival mode — wave-based extraction in the chemistry
+      arena; escalating zombie monsters; bank loot by surviving to wave 6. *Playable.*
+- [~] **8b — Harvest & craft:** monsters drop loot (banked on extraction); crafting
+      recipes/blueprints still TODO
+- [x] **8c — RPG meta:** XP/level (persistent localStorage), per-level health, stash +
+      best-wave; full skill trees/gear-tiering still TODO
 - [ ] **8d — Content & chemistry monsters:** elemental archetypes + bosses, more biomes,
       day/night escalation, secure-pocket + down/loot-drop rules
 - [ ] **8e — Spells & consumables:** spell system + tomes, potions/grenades/traps, base hub
-- [ ] **8f — Evolution branches & traversal:** ragdoll mutation system + per-branch trees;
-      prove with **Aviator** (flight) + **Burrower** (dig/tunnel), then Titan/Mutant/
-      Tinker/Beast/Hydra as content
+- [x] **8f — Evolution branches:** Aviator (flight) + Burrower (dig) + Titan (tank),
+      cycle with Z; Mutant/Tinker/Beast/Hydra still TODO
 - [ ] Balancing pass on the economy (loot, craft costs, XP, evolution points)
 
 **Exit:** deploy into the wasteland, scavenge & fight monsters, extract with loot, level

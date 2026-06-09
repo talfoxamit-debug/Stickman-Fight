@@ -6,13 +6,14 @@ import type { Weapon } from '../physics/weapon';
 import type { Fx } from './fx';
 import { PowderRenderer } from '../powder/render';
 import { ARMOR } from '../physics/armor';
+import { xpForLevel } from '../game/save';
 
 const B = CFG.body;
 const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.13 · evolution branches (aviator/burrower/titan) + knee fix';
+const VERSION = 'v0.14 · SURVIVAL mode (waves/XP/loot/extraction) + evolution';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -529,10 +530,23 @@ export class Renderer {
   private hud(ctx: CanvasRenderingContext2D, match: Match): void {
     this.statusPanel(ctx, match.fighters[0], 24, 'left');
     this.statusPanel(ctx, match.fighters[1], W - 24, 'right');
-
-    // Round score pips.
-    const total = CFG.rounds.winsNeeded;
     ctx.textAlign = 'center';
+
+    if (match.mode === 'survival') {
+      ctx.font = 'bold 17px ui-monospace, monospace';
+      ctx.fillStyle = '#7cff5a';
+      ctx.fillText(`WAVE ${match.wave}  ·  extract @ 6`, W / 2, 28);
+      ctx.font = '12px ui-monospace, monospace';
+      ctx.fillStyle = '#cbb8ff';
+      const m = match.meta;
+      ctx.fillText(
+        `Lv ${m.level}   XP ${m.xp}/${xpForLevel(m.level)}   loot ${match.runResources}   stash ${m.stash}   best W${m.bestWave}`,
+        W / 2, 50,
+      );
+      return;
+    }
+
+    const total = CFG.rounds.winsNeeded;
     ctx.font = 'bold 14px ui-monospace, monospace';
     ctx.fillStyle = '#cbb8ff';
     ctx.fillText(`ROUND ${match.round}`, W / 2, 30);

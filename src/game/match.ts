@@ -9,6 +9,7 @@ import type { BodyMeta } from '../types';
 import { Bot } from './bot';
 import { PowderGrid } from '../powder/grid';
 import { Mat } from '../powder/materials';
+import { loadMeta, saveMeta, xpForLevel, type SurvivalMeta } from './save';
 
 const { Engine, Composite, Bodies, Body, Events } = Matter;
 
@@ -20,7 +21,7 @@ export interface FxSink {
 }
 
 export type MatchState = 'intro' | 'fight' | 'roundover' | 'matchover';
-export type GameMode = 'versus' | 'solo' | 'sandbox';
+export type GameMode = 'versus' | 'solo' | 'sandbox' | 'survival';
 
 const FIGHTER_SETUP = [
   { color: '#22e3ff', accent: '#aef9ff', name: 'P1', weaponIndex: 0 },
@@ -44,6 +45,13 @@ export class Match {
   botEnabled = false;
   private bot = new Bot();
 
+  // Survival mode.
+  wave = 1;
+  runResources = 0;
+  meta: SurvivalMeta = loadMeta();
+  playerEvo: Evolution = 'none';
+  private readonly EXTRACT_WAVE = 6;
+
   private stateTimer = 0; // sim-ms remaining for the current transient state
   private hitstopSteps = 0;
   private prevGrab: [boolean, boolean] = [false, false];
@@ -56,10 +64,11 @@ export class Match {
     this.buildArena();
     this.grid = new PowderGrid(CFG.view.width, CFG.view.height, 6);
     this.seedArena();
-    this.fighters = this.spawnFighters();
+    this.fighters = mode === 'survival' ? this.makeSurvivalFighters() : this.spawnFighters();
     this.spawnArenaWeapons();
     this.wireCollisions();
-    this.beginRound();
+    if (mode === 'survival') this.beginSurvivalRun();
+    else this.beginRound();
   }
 
   /** Seed the arena's powder: a glowing lava lake in the pit under the platform. */
@@ -169,7 +178,8 @@ export class Match {
     this.drainBreaks();
     this.faceOpponents();
     this.checkRingOut();
-    this.advanceRoundFlow(now);
+    if (this.mode === 'survival') this.advanceSurvival(now);
+    else this.advanceRoundFlow(now);
   }
 
   private clampVelocities(): void {
@@ -519,6 +529,20 @@ export class Match {
   // ---- external controls --------------------------------------------------
 
   restart(): void {
+    if (this.mode === 'survival') {
+      this.fighters[0].destroy();
+      this.fighters[1].destroy();
+      for (const w of this.looseWeapons) Composite.remove(this.world, w.body);
+      this.looseWeapons = [];
+      this.grid.clear();
+      this.seedArena();
+      this.wave = 1;
+      this.runResources = 0;
+      this.fighters = this.makeSurvivalFighters();
+      this.spawnArenaWeapons();
+      this.beginSurvivalRun();
+      return;
+    }
     this.scores = [0, 0];
     this.round = 1;
     this.matchWinner = -1;
@@ -536,6 +560,119 @@ export class Match {
     const cur = this.fighters[0].evolution;
     const next = EVOLUTIONS[(EVOLUTIONS.indexOf(cur) + 1) % EVOLUTIONS.length];
     this.fighters[0].evolution = next;
+    this.playerEvo = next;
     return next;
+  }
+
+  // ---- survival mode ------------------------------------------------------
+
+  private makeFighter(
+    id: 0 | 1,
+    x: number,
+    facing: 1 | -1,
+    setup: { color: string; accent: string; name: string; weaponIndex: number },
+    maxCore?: number,
+    evo?: Evolution,
+  ): Fighter {
+    const f = new Fighter(this.world, { id, x, facing, ...setup });
+    if (maxCore) { f.maxCore = maxCore; f.coreHealth = maxCore; }
+    if (evo) f.evolution = evo;
+    return f;
+  }
+
+  private makeMonster(): Fighter {
+    const W = CFG.view.width;
+    const power = 55 + this.wave * 18;
+    const wi = (Math.random() * 3) | 0;
+    return this.makeFighter(1, W * 0.7, -1, { color: '#9be36b', accent: '#d6ffb0', name: 'ZOMBIE', weaponIndex: wi }, power);
+  }
+
+  private makeSurvivalFighters(): [Fighter, Fighter] {
+    const W = CFG.view.width;
+    const hp = CFG.health.core + this.meta.level * 15;
+    const player = this.makeFighter(0, W * 0.3, 1, { color: '#22e3ff', accent: '#aef9ff', name: 'YOU', weaponIndex: 0 }, hp, this.playerEvo);
+    return [player, this.makeMonster()];
+  }
+
+  private beginSurvivalRun(): void {
+    this.botEnabled = true;
+    this.matchWinner = -1;
+    this.state = 'intro';
+    this.message = `WAVE ${this.wave}`;
+    this.stateTimer = 1100;
+  }
+
+  private respawnMonster(): void {
+    this.fighters[1].destroy();
+    this.fighters = [this.fighters[0], this.makeMonster()];
+  }
+
+  private healPlayer(): void {
+    const p = this.fighters[0];
+    p.coreHealth = Math.min(p.maxCore, p.coreHealth + p.maxCore * 0.4);
+  }
+
+  private grantXP(amount: number): void {
+    this.meta.xp += amount;
+    while (this.meta.xp >= xpForLevel(this.meta.level)) {
+      this.meta.xp -= xpForLevel(this.meta.level);
+      this.meta.level++;
+    }
+    saveMeta(this.meta);
+  }
+
+  private advanceSurvival(now: number): void {
+    this.simNow = now;
+    this.stateTimer -= CFG.sim.fixedDt;
+    const [player, monster] = this.fighters;
+
+    if (this.state === 'intro') {
+      if (this.stateTimer <= 0) { this.state = 'fight'; this.message = 'FIGHT!'; this.stateTimer = 500; }
+      return;
+    }
+    if (this.state === 'fight') {
+      if (this.stateTimer > 0) this.stateTimer -= CFG.sim.fixedDt;
+      if (player.koed) {
+        this.meta.bestWave = Math.max(this.meta.bestWave, this.wave);
+        saveMeta(this.meta);
+        this.runResources = 0; // unsecured loot lost on death
+        this.message = `YOU DIED — reached wave ${this.wave}`;
+        this.matchWinner = 1;
+        this.state = 'matchover';
+        this.fx.shake(18);
+        return;
+      }
+      if (monster.koed) {
+        this.grantXP(18 + this.wave * 6);
+        this.runResources += 3 + this.wave;
+        this.fx.confetti(monster.torsoBody.position.x, 180);
+        if (this.wave >= this.EXTRACT_WAVE) {
+          this.meta.stash += this.runResources;
+          this.meta.bestWave = Math.max(this.meta.bestWave, this.wave);
+          saveMeta(this.meta);
+          this.message = `EXTRACTED! banked ${this.runResources} loot`;
+          this.matchWinner = 0;
+          this.state = 'matchover';
+        } else {
+          this.message = `WAVE ${this.wave} CLEARED`;
+          this.state = 'roundover';
+          this.stateTimer = 1500;
+        }
+      }
+      return;
+    }
+    if (this.state === 'roundover') {
+      if (this.stateTimer <= 0) {
+        this.wave++;
+        this.respawnMonster();
+        this.healPlayer();
+        this.faceOpponents();
+        this.state = 'intro';
+        this.message = `WAVE ${this.wave}`;
+        this.stateTimer = 900;
+      }
+      return;
+    }
+    // matchover: wait for R to start a new run.
   }
 }

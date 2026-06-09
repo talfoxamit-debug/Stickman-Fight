@@ -46,12 +46,12 @@ export class Bot {
     const dy = foe.torsoBody.position.y - my;
     const faceDir = dx > 0 ? 1 : -1;
 
-    // React to an incoming attack: dodge away or raise guard.
-    if (foe.isAttacking() && adx < 160 && t > this.reactCdUntil) {
-      this.reactCdUntil = t + 520;
+    // React to an incoming attack: sometimes dodge or guard (but mostly keep trading).
+    if (foe.isAttacking() && adx < 135 && t > this.reactCdUntil) {
+      this.reactCdUntil = t + 720;
       const r = Math.random();
-      if (r < 0.4) { this.dodgeFrames = 3; this.dodgeDir = -faceDir; }
-      else if (r < 0.8) this.blockUntil = t + 360;
+      if (r < 0.22) { this.dodgeFrames = 3; this.dodgeDir = -faceDir; }
+      else if (r < 0.42) this.blockUntil = t + 280;
     }
 
     // Emit a dodge double-tap (tap / release / tap) away from the foe.
