@@ -25,11 +25,13 @@ like an **alchemist**.
 
 ## Status
 
-🟢 **Phase 1 playable** — a local 2-player active-ragdoll duel is implemented:
-breakable limbs, weapons that drop when you smash the arm holding them, momentum
-swings, throw/pickup, ring-outs, best-of-3 rounds, a colorful festival look, and a
-simple bot for solo play. The rest of the vision (powder chemistry, survival, evolution)
-is still on the [roadmap](docs/ROADMAP.md).
+🟢 **Phases 1–2 playable.** A local 2-player active-ragdoll duel **inside a live
+chemistry sandbox**: breakable limbs + weapon-drop, a full moveset (light combo /
+heavy / stab + punch/kick fallback), mobility (double jump, dodge-roll i-frames,
+block/parry), mouse aim, and a **falling-sand world** (sand/water/oil/fire/lava/acid/
+gunpowder…) that burns, floats, melts, and explodes the fighters — paint hazards live
+with `1-0`/`Q`/`C`. Survival, evolution, and the Forge are still on the
+[roadmap](docs/ROADMAP.md).
 
 ## Run it
 

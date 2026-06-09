@@ -91,6 +91,15 @@ export class Input {
     return kb;
   }
 
+  isDown(code: string): boolean {
+    return this.down.has(code);
+  }
+
+  /** Internal-resolution cursor position (or null if the mouse hasn't been used). */
+  cursor(): { x: number; y: number } | null {
+    return this.mActive ? this.aim() : null;
+  }
+
   consumePressed(code: string): boolean {
     if (this.justPressed.has(code)) {
       this.justPressed.delete(code);

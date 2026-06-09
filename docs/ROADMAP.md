@@ -40,24 +40,25 @@ accessibility toggle alongside neon FX.
 **Exit:** ✅ a chaotic 2P ragdoll duel where arms break, weapons drop, and heads roll.
 Feel is tunable in `src/config.ts`; needs human playtest tuning of the PD gains.
 
-## Phase 2 — Powder Core
+## Phase 2 — Powder Core ✅ (core done)
 
-- [ ] CA engine: grid (typed arrays), double buffer, active-chunk updates, budget
-- [ ] Materials v1: Sand, Water, Stone/Wall, Oil, Fire + temperature field
-- [ ] CA render layer (ImageData → scaled canvas)
-- [ ] Bridge: buoyancy/drag in liquids, body displacement of granular/liquid,
-      heat→joint damage, ignite flammables, blood emit
-- [ ] Arenas authored from CA materials; basic destructibility
+- [x] CA engine: typed-array grid, in-place falling-sand update with move guard
+- [x] Materials: Sand, Water, Oil, Fire, Ember, Smoke, Steam, Stone, Wood, Lava,
+      Acid, Ice, Gunpowder, Plant
+- [x] CA render layer (ImageData → scaled canvas, with fire/lava flicker)
+- [x] Bridge: buoyancy/drag in water, heat→limb damage (fire/lava), acid corrosion,
+      body displacement (carve), gunpowder explosion impulses
+- [x] Arena seeded with a lava lake (fiery ring-out pit); live sandbox painting (1-0 / Q / C)
 
-**Exit:** fight inside a sandbox — wade through water, set things on fire, burn the floor.
+**Exit:** ✅ fight inside a reactive sandbox — float in water, burn in fire, melt in
+acid, get launched by gunpowder, paint your own hazards live.
 
-## Phase 3 — Element Chemistry
+## Phase 3 — Element Chemistry (partly done; expand next)
 
-- [ ] Add Lava, Acid, Gunpowder, Nitro/TNT, Ice, Steam, Smoke, Metal, Spark/Electricity,
-      Magnet, Plant, Glass, Salt
-- [ ] Full data-driven reaction matrix (§4) + temperature-driven spread/melt/freeze
-- [ ] Bridge: acid corrosion, electrified water/metal stun, explosion impulses + terrain
-      destruction, magnet forces, steam launch, ice friction
+- [x] Lava, Acid, Gunpowder, Ice, Steam, Smoke, Wood, Plant + reactions
+      (fire spreads fuel, lava+water→stone+steam, acid dissolves, ice melts, etc.)
+- [ ] Add Metal, Spark/Electricity, Magnet, Glass, Salt, Nitro/TNT, temperature field
+- [ ] Bridge: electrified water/metal stun, magnet forces, steam launch, ice friction
 - [ ] Emitter weapons (flamethrower, acid sprayer, water cannon) + Container/flask
       weapons (load/dump CA payload); refill from environment
 

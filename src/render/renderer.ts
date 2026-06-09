@@ -4,13 +4,14 @@ import type { Fighter } from '../physics/fighter';
 import type { Match } from '../game/match';
 import type { Weapon } from '../physics/weapon';
 import type { Fx } from './fx';
+import { PowderRenderer } from '../powder/render';
 
 const B = CFG.body;
 const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.6 · mouse aim + block/parry + dodge + better jump';
+const VERSION = 'v0.7 · powder chemistry arena (fire/water/lava/acid/boom)';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -40,6 +41,7 @@ const LIMB_ORDER: PartName[] = [
 ];
 
 export class Renderer {
+  private powder?: PowderRenderer;
   constructor(private ctx: CanvasRenderingContext2D) {}
 
   draw(match: Match, fx: Fx, paused: boolean): void {
@@ -51,6 +53,8 @@ export class Renderer {
     ctx.translate(fx.shakeX, fx.shakeY);
     this.platform(ctx);
     this.floatingPlatforms(ctx);
+    if (!this.powder) this.powder = new PowderRenderer(match.grid);
+    this.powder.draw(ctx, match.grid, CFG.view.width, CFG.view.height);
     for (const w of match.looseWeapons) this.weapon(ctx, w, false);
     for (const f of match.fighters) this.fighter(ctx, f);
     fx.draw(ctx);

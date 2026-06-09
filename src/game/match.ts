@@ -7,6 +7,8 @@ import { Fighter } from '../physics/fighter';
 import { setWeaponOwner, type Weapon } from '../physics/weapon';
 import type { BodyMeta } from '../types';
 import { Bot } from './bot';
+import { PowderGrid } from '../powder/grid';
+import { Mat } from '../powder/materials';
 
 const { Engine, Composite, Bodies, Body, Events } = Matter;
 
@@ -29,6 +31,7 @@ export class Match {
   world: Matter.World;
   fighters: [Fighter, Fighter];
   looseWeapons: Weapon[] = [];
+  grid: PowderGrid;
 
   state: MatchState = 'intro';
   scores: [number, number] = [0, 0];
@@ -49,9 +52,18 @@ export class Match {
     this.engine.gravity.y = CFG.sim.gravityY;
     this.world = this.engine.world;
     this.buildArena();
+    this.grid = new PowderGrid(CFG.view.width, CFG.view.height, 6);
+    this.seedArena();
     this.fighters = this.spawnFighters();
     this.wireCollisions();
     this.beginRound();
+  }
+
+  /** Seed the arena's powder: a glowing lava lake in the pit under the platform. */
+  private seedArena(): void {
+    const W = CFG.view.width;
+    const H = CFG.view.height;
+    this.grid.fillRectPx(0, H - 44, W, H, Mat.Lava);
   }
 
   // ---- setup --------------------------------------------------------------
@@ -139,6 +151,11 @@ export class Match {
 
     // 3) Advance physics (fires collision events => damage + grounded).
     Engine.update(this.engine, CFG.sim.fixedDt);
+
+    // 3b) Advance the chemistry world and couple it to the bodies.
+    this.grid.update();
+    this.couplePowder(now);
+    this.drainExplosions(now);
 
     // 4) Post-step bookkeeping. Handle grabs first (a throw pushes to the drop
     //    queue), then drain the queue so thrown/severed weapons become loose now.
@@ -241,6 +258,61 @@ export class Match {
         this.hitstopSteps = Math.max(this.hitstopSteps, applied > 22 ? 4 : 2);
       }
     }
+  }
+
+  /** Sample the chemistry world under each limb and apply its effects. */
+  private couplePowder(now: number): void {
+    const g = this.grid;
+    for (const f of this.fighters) {
+      if (f.koed) continue;
+      for (const b of f.bodies()) {
+        const meta = (b as unknown as { meta?: BodyMeta }).meta;
+        if (!meta?.part) continue;
+        const m = g.matAtPx(b.position.x, b.position.y);
+        if (m === Mat.Fire || m === Mat.Ember) {
+          f.damagePart(meta.part, 5, now);
+          Body.setVelocity(b, { x: b.velocity.x, y: b.velocity.y - 0.4 });
+        } else if (m === Mat.Lava) {
+          f.damagePart(meta.part, 11, now);
+          Body.setVelocity(b, { x: b.velocity.x * 0.96, y: b.velocity.y - 0.5 });
+        } else if (m === Mat.Acid) {
+          f.damagePart(meta.part, 7, now);
+        } else if (m === Mat.Water) {
+          // Buoyancy + drag (float, slowed).
+          Body.setVelocity(b, { x: b.velocity.x * 0.9, y: b.velocity.y * 0.86 - 0.5 });
+        }
+        // Displace very light materials the body wades through.
+        g.carvePx(b.position.x - 8, b.position.y - 8, b.position.x + 8, b.position.y + 8);
+      }
+    }
+  }
+
+  /** Gunpowder blasts launch nearby fighters and deal explosive damage. */
+  private drainExplosions(now: number): void {
+    for (const ex of this.grid.explosions) {
+      for (const f of this.fighters) {
+        if (f.koed) continue;
+        let hitPart: BodyMeta['part'] | undefined;
+        let nearest = Infinity;
+        for (const b of f.bodies()) {
+          const dx = b.position.x - ex.x;
+          const dy = b.position.y - ex.y;
+          const d = Math.hypot(dx, dy);
+          if (d < ex.r) {
+            const k = (1 - d / ex.r) * 22;
+            const inv = 1 / (d || 1);
+            Body.setVelocity(b, { x: b.velocity.x + dx * inv * k, y: b.velocity.y + dy * inv * k - 4 });
+            const meta = (b as unknown as { meta?: BodyMeta }).meta;
+            if (d < nearest && meta?.part) { nearest = d; hitPart = meta.part; }
+          }
+        }
+        if (hitPart) f.damagePart(hitPart, 26 * (1 - nearest / ex.r), now);
+      }
+      this.fx.impact(ex.x, ex.y, 26, '#ffcf4d');
+      this.fx.shake(16);
+      this.hitstopSteps = Math.max(this.hitstopSteps, 4);
+    }
+    this.grid.explosions.length = 0;
   }
 
   /** Shove the whole target away from the attacking weapon (heavier on big attacks). */
@@ -396,6 +468,8 @@ export class Match {
     for (const f of this.fighters) f.destroy();
     for (const w of this.looseWeapons) Composite.remove(this.world, w.body);
     this.looseWeapons = [];
+    this.grid.clear();
+    this.seedArena();
     this.fighters = this.spawnFighters();
     this.faceOpponents();
   }
