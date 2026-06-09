@@ -41,7 +41,7 @@ const MODES: { key: string; mode: GameMode; label: string; desc: string }[] = [
 
 function startMode(mode: GameMode): void {
   if (mode === 'world') {
-    world = new World('none');
+    world = new World(fx, 'none');
   } else {
     world = null;
     match = new Match(fx, mode);

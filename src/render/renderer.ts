@@ -21,7 +21,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.19 · WORLD scale fix — small character, vast world';
+const VERSION = 'v0.20 · WORLD has a point — roaming monsters, combat, loot';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -135,24 +135,52 @@ export class Renderer {
   }
 
   private worldHud(ctx: CanvasRenderingContext2D, world: World): void {
-    ctx.textAlign = 'left';
-    ctx.font = '14px ui-monospace, monospace';
+    // Player health bar + stats (top-left).
+    const p = world.player;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(12, 12, 244, 86);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(20, 22, 200, 14);
+    const frac = Math.max(0, p.coreHealth / p.maxCore);
+    ctx.fillStyle = frac > 0.5 ? '#7cff5a' : frac > 0.25 ? '#ffcf4d' : '#ff5a5a';
+    ctx.fillRect(20, 22, 200 * frac, 14);
     ctx.fillStyle = '#fff';
-    ctx.fillText('INVENTORY', 16, 28);
-    let i = 0;
+    ctx.textAlign = 'left';
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillText(`HP  ·  slain ${world.kills}  ·  loot ${world.loot}  ·  depth ${world.depth()}`, 20, 50);
+    ctx.fillText(`evolution: ${p.evolution}  (Z)`, 20, 66);
+
+    // Inventory (top-right).
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#fff';
     ctx.font = '13px ui-monospace, monospace';
+    ctx.fillText('INVENTORY', W - 16, 28);
+    let i = 0;
     for (const [m, n] of world.inventory) {
       const y = 50 + i * 20;
-      ctx.fillStyle = MAT_COLORS[m];
-      ctx.fillRect(16, y - 11, 13, 13);
       ctx.fillStyle = '#cbd';
-      ctx.fillText(`${MATERIALS[m as Mat].name}  x${n}`, 36, y);
+      ctx.textAlign = 'right';
+      ctx.fillText(`${MATERIALS[m as Mat].name} x${n}`, W - 34, y);
+      ctx.fillStyle = MAT_COLORS[m];
+      ctx.fillRect(W - 28, y - 11, 13, 13);
       i++;
     }
+
+    // Flash message (kills / death).
+    if (world.message) {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ff37c8';
+      ctx.shadowBlur = 16;
+      ctx.font = 'bold 34px ui-monospace, monospace';
+      ctx.fillText(world.message, W / 2, 110);
+      ctx.shadowBlur = 0;
+    }
+
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.font = '13px ui-monospace, monospace';
-    ctx.fillText('move A/D · jump W (×2) · DIG: hold F or aim+LMB · Z evolve (burrower digs big) · M menu', W / 2, H - 14);
+    ctx.fillText('A/D move · W jump (×2) · F/LMB attack & mine · grab/throw G · Z evolve · M menu', W / 2, H - 14);
   }
 
   // ---- arena --------------------------------------------------------------

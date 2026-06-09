@@ -1,40 +1,203 @@
-// Terraria-style open-world mode: a big diggable terrain you explore with a camera.
+// Terraria-style open-world mode: explore a big diggable world, fight roaming
+// monsters for loot, and dig for materials. Camera scrolls/zooms to follow you.
 
 import Matter from 'matter-js';
 import { CFG } from '../config';
 import { clamp } from '../core/util';
 import type { PlayerInput } from '../core/input';
+import { EMPTY_INPUT } from '../core/input';
 import { Fighter, type Evolution } from '../physics/fighter';
 import { WorldGrid } from './worldgrid';
 import { Mat } from '../powder/materials';
+import { Bot } from '../game/bot';
+import { pickArchetype } from '../game/monsters';
+import type { BodyMeta } from '../types';
+import type { FxSink } from '../game/match';
 
-const { Engine, Composite, Body } = Matter;
+const { Engine, Composite, Body, Events } = Matter;
+const C = CFG.combat;
 
 export class World {
   engine: Matter.Engine;
   grid: WorldGrid;
   player: Fighter;
   monsters: Fighter[] = [];
-  camera = { x: 0, y: 0 }; // focus point (world coords) the camera centers on
-  zoom = 0.55; // zoomed out so the character is small in a vast world
+  private bots: Bot[] = [];
+  private byId = new Map<number, Fighter>();
+  private nextId = 1;
+
+  camera = { x: 0, y: 0 };
+  zoom = 0.55;
   inventory = new Map<Mat, number>();
-  lastMined: Mat | null = null;
+  kills = 0;
+  loot = 0;
+  message = '';
+  private messageUntil = 0;
 
   private digCdUntil = 0;
+  private spawnAt = 0;
+  private playerDeadAt = 0;
+  private simNow = 0;
+  private readonly MAX_MONSTERS = 4;
 
-  constructor(public playerEvo: Evolution = 'none') {
+  constructor(private fx: FxSink, public playerEvo: Evolution = 'none') {
     this.engine = Engine.create();
     this.engine.gravity.y = CFG.sim.gravityY;
     this.grid = new WorldGrid();
-    this.player = new Fighter(this.engine.world, {
-      id: 0, x: this.grid.spawnX, facing: 1,
-      color: '#22e3ff', accent: '#aef9ff', name: 'YOU', weaponIndex: 0,
-    });
-    this.player.evolution = this.playerEvo;
-    this.player.groundSampler = (x, y) => this.grid.groundBelowPx(x, y);
-    // Drop the player onto the spawn surface.
-    Body.setPosition(this.player.torsoBody, { x: this.grid.spawnX, y: this.grid.spawnY });
+    this.player = this.makeFighter(0, this.grid.spawnX, this.grid.spawnY, 1, '#22e3ff', '#aef9ff', 'YOU', 0, CFG.health.core, this.playerEvo);
+    Events.on(this.engine, 'collisionStart', (e) => { for (const p of e.pairs) this.resolveHit(p.bodyA, p.bodyB); });
     this.centerCamera();
+  }
+
+  private makeFighter(id: number, x: number, y: number, facing: 1 | -1, color: string, accent: string, name: string, weaponIndex: number, hp: number, evo: Evolution = 'none'): Fighter {
+    const f = new Fighter(this.engine.world, { id, x, facing, color, accent, name, weaponIndex });
+    f.maxCore = hp; f.coreHealth = hp;
+    f.evolution = evo;
+    f.groundSampler = (gx, gy) => this.grid.groundBelowPx(gx, gy);
+    Body.setPosition(f.torsoBody, { x, y });
+    this.byId.set(id, f);
+    return f;
+  }
+
+  // ---- step ---------------------------------------------------------------
+
+  step(now: number, input: PlayerInput): void {
+    this.simNow = now;
+    if (now > this.messageUntil) this.message = '';
+    this.spawnMonsters(now);
+
+    const playerInput = this.player.koed ? EMPTY_INPUT : input;
+    this.player.applyControl(now, playerInput);
+    for (let i = 0; i < this.monsters.length; i++) {
+      const m = this.monsters[i];
+      const inp = m.koed ? EMPTY_INPUT : this.bots[i].think(m, this.player, []);
+      m.applyControl(now, inp);
+    }
+
+    Engine.update(this.engine, CFG.sim.fixedDt);
+
+    this.blockWalls(this.player);
+    for (const m of this.monsters) this.blockWalls(m);
+    this.mineWithSwing(now, input);
+    this.handleDeaths(now);
+    this.clampSpeeds();
+    this.centerCamera();
+  }
+
+  private spawnMonsters(now: number): void {
+    if (this.player.koed || this.monsters.length >= this.MAX_MONSTERS || now < this.spawnAt) return;
+    this.spawnAt = now + 2600;
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const span = (CFG.view.width / this.zoom) * 0.62;
+    const x = clamp(this.player.torsoBody.position.x + side * span, 60, this.grid.widthPx - 60);
+    const a = pickArchetype(Math.min(7, 1 + ((this.kills / 3) | 0)));
+    const id = this.nextId++;
+    const hp = (52 + this.kills * 4) * a.hpMul;
+    const wi = typeof a.weapon === 'number' ? a.weapon : (Math.random() * 3) | 0;
+    const sy = this.grid.groundBelowPx(x, 0) - 70;
+    const m = this.makeFighter(id, x, sy, side > 0 ? -1 : 1, a.color, a.accent, a.name.toUpperCase(), wi, hp, a.evolution);
+    m.speedMul = a.speedMul ?? 1;
+    this.monsters.push(m);
+    this.bots.push(new Bot());
+  }
+
+  private mineWithSwing(now: number, input: PlayerInput): void {
+    if (this.player.koed || !input.attack || now < this.digCdUntil) return;
+    if (!this.player.isStriking(now)) return;
+    this.digCdUntil = now + 130;
+    const w = this.player.weapon;
+    const px = w ? w.body.position.x : this.player.handPos().x;
+    const py = w ? w.body.position.y : this.player.handPos().y;
+    const mined = this.grid.digPx(px, py, this.grid.cell * (this.player.evolution === 'burrower' ? 2.2 : 1.2));
+    for (const [m, n] of mined) this.inventory.set(m, (this.inventory.get(m) ?? 0) + n);
+  }
+
+  private handleDeaths(now: number): void {
+    for (let i = this.monsters.length - 1; i >= 0; i--) {
+      const m = this.monsters[i];
+      if (!m.koed) continue;
+      this.kills++;
+      this.loot += 5 + ((m.maxCore / 30) | 0);
+      if (Math.random() < 0.45) this.inventory.set(Mat.Ore, (this.inventory.get(Mat.Ore) ?? 0) + 1);
+      const p = m.torsoBody.position;
+      this.fx.confetti(p.x, p.y);
+      m.destroy();
+      this.byId.delete(m.id);
+      this.monsters.splice(i, 1);
+      this.bots.splice(i, 1);
+      this.flash(`SLAIN! +${5 + ((m.maxCore / 30) | 0)} loot`, now);
+    }
+    if (this.player.koed) {
+      if (this.playerDeadAt === 0) { this.playerDeadAt = now + 2600; this.flash('YOU DIED — respawning…', now + 2600); this.loot = Math.floor(this.loot * 0.5); }
+      else if (now >= this.playerDeadAt) this.respawnPlayer();
+    }
+  }
+
+  private respawnPlayer(): void {
+    const evo = this.player.evolution;
+    this.player.destroy();
+    this.byId.delete(0);
+    this.player = this.makeFighter(0, this.grid.spawnX, this.grid.spawnY, 1, '#22e3ff', '#aef9ff', 'YOU', 0, CFG.health.core, evo);
+    this.playerDeadAt = 0;
+  }
+
+  private flash(msg: string, now: number): void {
+    this.message = msg;
+    this.messageUntil = now + 1500;
+  }
+
+  // ---- combat -------------------------------------------------------------
+
+  private resolveHit(a: Matter.Body, b: Matter.Body): void {
+    const ma = (a as unknown as { meta?: BodyMeta }).meta;
+    const mb = (b as unknown as { meta?: BodyMeta }).meta;
+    if (!ma || !mb) return;
+    const speed = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
+    if (speed <= C.impactThreshold) return;
+    this.tryDamage(a, ma, b, mb, speed);
+    this.tryDamage(b, mb, a, ma, speed);
+  }
+
+  private tryDamage(target: Matter.Body, tMeta: BodyMeta, other: Matter.Body, oMeta: BodyMeta, speed: number): void {
+    if (tMeta.fighterId < 0 || !tMeta.part) return;
+    const tf = this.byId.get(tMeta.fighterId);
+    if (!tf) return;
+    const hostile = (oMeta.fighterId >= 0 && oMeta.fighterId !== tMeta.fighterId) || oMeta.kind === 'weapon';
+    if (!hostile) return;
+    const mul = oMeta.kind === 'weapon' ? C.weaponMul : C.bodyMul;
+    const massFactor = clamp(other.mass, 0.6, 2.2);
+    let dmg = Math.min((speed - C.impactThreshold) * C.damageScale * mul * massFactor, C.maxHitDamage);
+    let knock = 0;
+    if (oMeta.fighterId >= 0) {
+      const af = this.byId.get(oMeta.fighterId);
+      if (af) { const pow = af.attackPower(); dmg *= pow.dmgMul; knock = pow.knock; }
+    }
+    const applied = tf.damagePart(tMeta.part, dmg, this.simNow);
+    if (applied > 0) {
+      if (knock > 0) {
+        const c = tf.torsoBody.position;
+        let nx = c.x - other.position.x, ny = c.y - other.position.y;
+        const d = Math.hypot(nx, ny) || 1; nx /= d; ny = ny / d - 0.4;
+        for (const bb of tf.bodies()) Body.setVelocity(bb, { x: bb.velocity.x + nx * knock, y: bb.velocity.y + ny * knock });
+      }
+      this.fx.blood((target.position.x + other.position.x) / 2, (target.position.y + other.position.y) / 2, applied);
+      if (applied > 10) this.fx.shake(Math.min(12, applied * 0.4));
+    }
+  }
+
+  // ---- terrain ------------------------------------------------------------
+
+  private blockWalls(f: Fighter): void {
+    const t = f.torsoBody;
+    const dir = Math.sign(t.velocity.x);
+    if (dir === 0) return;
+    const hw = 16;
+    const frontX = t.position.x + dir * hw;
+    const stepUp = this.grid.groundBelowPx(t.position.x, t.position.y) - this.grid.groundBelowPx(frontX, t.position.y);
+    if (stepUp > this.grid.cell * 1.6) {
+      Body.setVelocity(t, { x: 0, y: t.velocity.y });
+      Body.setPosition(t, { x: Math.round(frontX / this.grid.cell) * this.grid.cell - dir * hw, y: t.position.y });
+    }
   }
 
   private centerCamera(): void {
@@ -45,63 +208,18 @@ export class World {
     this.camera.y = this.grid.heightPx > 2 * halfH ? clamp(py, halfH, this.grid.heightPx - halfH) : this.grid.heightPx / 2;
   }
 
-  step(now: number, input: PlayerInput): void {
-    this.player.applyControl(now, input);
-    Engine.update(this.engine, CFG.sim.fixedDt);
-    this.blockWalls(this.player);
-    this.handleDig(now, input);
-    this.clampSpeeds();
-    this.centerCamera();
-  }
-
-  /** Ride gentle slopes (stand-support does the lifting); block only true cliffs
-   *  taller than a step. Lets the ragdoll walk over chunky terrain without sticking. */
-  private blockWalls(f: Fighter): void {
-    const t = f.torsoBody;
-    const dir = Math.sign(t.velocity.x);
-    if (dir === 0) return;
-    const hw = 16;
-    const frontX = t.position.x + dir * hw;
-    const curGround = this.grid.groundBelowPx(t.position.x, t.position.y);
-    const frontGround = this.grid.groundBelowPx(frontX, t.position.y);
-    const stepUp = curGround - frontGround; // >0 means the ground ahead is higher
-    const maxStep = this.grid.cell * 1.6; // can climb up to ~1.5 tiles automatically
-    if (stepUp > maxStep) {
-      // A wall/cliff: stop and nudge back to its edge.
-      Body.setVelocity(t, { x: 0, y: t.velocity.y });
-      const edge = (Math.round(frontX / this.grid.cell) * this.grid.cell) - dir * hw;
-      Body.setPosition(t, { x: edge, y: t.position.y });
-    }
-  }
-
-  private handleDig(now: number, input: PlayerInput): void {
-    if (!input.attack || now < this.digCdUntil) return;
-    this.digCdUntil = now + 110;
-    const p = this.player.torsoBody.position;
-    let tx = p.x + this.player.facing * this.grid.cell * 1.6;
-    let ty = p.y + 16;
-    if (input.aimX != null && input.aimY != null) {
-      // Screen -> world through the zoom.
-      const wx = this.camera.x + (input.aimX - CFG.view.width / 2) / this.zoom;
-      const wy = this.camera.y + (input.aimY - CFG.view.height / 2) / this.zoom;
-      const dx = wx - p.x, dy = wy - p.y, d = Math.hypot(dx, dy) || 1;
-      const reach = this.grid.cell * 3.5;
-      if (d > reach) { tx = p.x + (dx / d) * reach; ty = p.y + (dy / d) * reach; }
-      else { tx = wx; ty = wy; }
-    }
-    const mined = this.grid.digPx(tx, ty, this.grid.cell * (this.player.evolution === 'burrower' ? 2.4 : 1.4));
-    for (const [m, n] of mined) {
-      this.inventory.set(m, (this.inventory.get(m) ?? 0) + n);
-      this.lastMined = m;
-    }
-  }
-
   private clampSpeeds(): void {
     const maxV = CFG.sim.maxLinearSpeed, maxW = CFG.sim.maxAngularSpeed;
-    for (const b of Composite.allBodies(this.engine.world)) {
-      const sp = Math.hypot(b.velocity.x, b.velocity.y);
-      if (sp > maxV) Body.setVelocity(b, { x: (b.velocity.x / sp) * maxV, y: (b.velocity.y / sp) * maxV });
-      if (Math.abs(b.angularVelocity) > maxW) Body.setAngularVelocity(b, Math.sign(b.angularVelocity) * maxW);
+    for (const bdy of Composite.allBodies(this.engine.world)) {
+      const sp = Math.hypot(bdy.velocity.x, bdy.velocity.y);
+      if (sp > maxV) Body.setVelocity(bdy, { x: (bdy.velocity.x / sp) * maxV, y: (bdy.velocity.y / sp) * maxV });
+      if (Math.abs(bdy.angularVelocity) > maxW) Body.setAngularVelocity(bdy, Math.sign(bdy.angularVelocity) * maxW);
     }
+  }
+
+  /** Depth below the surface in tiles (for the HUD). */
+  depth(): number {
+    const surfaceY = this.grid.rows * 0.32 * this.grid.cell;
+    return Math.max(0, Math.round((this.player.torsoBody.position.y - surfaceY) / this.grid.cell));
   }
 }
