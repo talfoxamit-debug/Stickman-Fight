@@ -11,7 +11,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.8 · electricity (electrified water/metal) + metal';
+const VERSION = 'v0.9 · element weapons (flamethrower/acid/water/cryo/spark)';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -390,6 +390,13 @@ export class Renderer {
       ctx.lineTo(gripX + ay * 9, gripY - ax * 9); // crossguard
       ctx.lineTo(gripX - ay * 9, gripY + ax * 9);
       ctx.stroke();
+    } else if (def.shape === 'nozzle') {
+      // A muzzle ring + a little tank at the grip.
+      ctx.fillStyle = def.color;
+      ctx.beginPath(); ctx.arc(tipX, tipY, def.thick * 0.7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#2a2a36';
+      ctx.shadowBlur = 0;
+      ctx.beginPath(); ctx.arc(gripX, gripY, def.thick * 0.85, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
   }

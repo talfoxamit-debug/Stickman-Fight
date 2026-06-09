@@ -468,6 +468,12 @@ export class Fighter {
     return this.attack !== null;
   }
 
+  /** True during the active strike window (used by emitter weapons to spray). */
+  isStriking(now: number): boolean {
+    const a = this.attack;
+    return a !== null && now - a.start >= a.antMs && now < a.start + a.antMs + a.strikeMs;
+  }
+
   isCharging(now: number): boolean {
     return this.prevAttack && !this.heavyArmed && !this.attack && this.attackHeldSince >= 0 &&
       now - this.attackHeldSince >= 110 && this.canStrikeArmed();

@@ -57,10 +57,12 @@ acid, get launched by gunpowder, paint your own hazards live.
 
 - [x] Lava, Acid, Gunpowder, Ice, Steam, Smoke, Wood, Plant + reactions
       (fire spreads fuel, lava+water→stone+steam, acid dissolves, ice melts, etc.)
-- [ ] Add Metal, Spark/Electricity, Magnet, Glass, Salt, Nitro/TNT, temperature field
-- [ ] Bridge: electrified water/metal stun, magnet forces, steam launch, ice friction
-- [ ] Emitter weapons (flamethrower, acid sprayer, water cannon) + Container/flask
-      weapons (load/dump CA payload); refill from environment
+- [x] Metal + Spark/Electricity; electrified water/metal stun (bridge)
+- [x] Emitter weapons (flamethrower, acid sprayer, water cannon, cryo, spark gun)
+      spray their material from the muzzle while striking; spawned as arena pickups
+- [ ] Add Magnet, Glass, Salt, Nitro/TNT, temperature field
+- [ ] Bridge: magnet forces, steam launch, ice friction
+- [ ] Container/flask weapons (load/dump CA payload); refill from environment
 
 **Exit:** the reactive playground from the pitch — emergent techniques start happening.
 

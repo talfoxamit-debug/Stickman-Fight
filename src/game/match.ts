@@ -4,7 +4,7 @@ import { clamp, dist } from '../core/util';
 import type { PlayerInput } from '../core/input';
 import { EMPTY_INPUT } from '../core/input';
 import { Fighter } from '../physics/fighter';
-import { setWeaponOwner, type Weapon } from '../physics/weapon';
+import { createWeapon, setWeaponOwner, EMITTER_INDICES, type Weapon } from '../physics/weapon';
 import type { BodyMeta } from '../types';
 import { Bot } from './bot';
 import { PowderGrid } from '../powder/grid';
@@ -55,6 +55,7 @@ export class Match {
     this.grid = new PowderGrid(CFG.view.width, CFG.view.height, 6);
     this.seedArena();
     this.fighters = this.spawnFighters();
+    this.spawnArenaWeapons();
     this.wireCollisions();
     this.beginRound();
   }
@@ -154,6 +155,7 @@ export class Match {
 
     // 3b) Advance the chemistry world and couple it to the bodies.
     this.grid.update();
+    this.emitFromWeapons(now);
     this.couplePowder(now);
     this.drainExplosions(now);
 
@@ -320,6 +322,28 @@ export class Match {
     this.grid.explosions.length = 0;
   }
 
+  /** Emitter weapons spray their material from the muzzle during a strike. */
+  private emitFromWeapons(now: number): void {
+    for (const f of this.fighters) {
+      const w = f.weapon;
+      if (!w || w.def.emit === undefined || f.koed || !f.isStriking(now)) continue;
+      this.grid.paintPx(w.body.position.x + f.facing * 20, w.body.position.y, w.def.emit, 7);
+    }
+  }
+
+  /** Drop a few chemistry emitter weapons in the arena as pickups each round. */
+  private spawnArenaWeapons(): void {
+    const W = CFG.view.width;
+    const y = CFG.arena.floorY - 26;
+    const xs = [W * 0.22, W * 0.5, W * 0.78];
+    for (let i = 0; i < xs.length; i++) {
+      const idx = EMITTER_INDICES[(i + this.round) % EMITTER_INDICES.length];
+      const w = createWeapon(idx, xs[i], y, -99, -1);
+      Composite.add(this.world, w.body);
+      this.looseWeapons.push(w);
+    }
+  }
+
   /** Shove the whole target away from the attacking weapon (heavier on big attacks). */
   private applyKnockback(target: Fighter, source: Matter.Body, knock: number): void {
     const c = target.torsoBody.position;
@@ -476,6 +500,7 @@ export class Match {
     this.grid.clear();
     this.seedArena();
     this.fighters = this.spawnFighters();
+    this.spawnArenaWeapons();
     this.faceOpponents();
   }
 
