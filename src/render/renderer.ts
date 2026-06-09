@@ -21,7 +21,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.23 · world biomes + treasure chests + deep lava hazard';
+const VERSION = 'v0.24 · visual polish — world parallax sky, dimmed effigy';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -92,6 +92,7 @@ export class Renderer {
     sky.addColorStop(1, '#274a63');
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, W, H);
+    this.worldBackground(ctx, world);
 
     ctx.save();
     ctx.translate(W / 2, H / 2);
@@ -111,10 +112,10 @@ export class Renderer {
 
     this.worldHud(ctx, world);
     if (world.crafting) this.craftPanel(ctx, world);
-    ctx.textAlign = 'left';
-    ctx.font = 'bold 12px ui-monospace, monospace';
-    ctx.fillStyle = 'rgba(124,255,90,0.7)';
-    ctx.fillText(VERSION, 12, H - 10);
+    ctx.textAlign = 'right';
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillStyle = 'rgba(124,255,90,0.55)';
+    ctx.fillText(VERSION, W - 12, H - 34);
   }
 
   private craftPanel(ctx: CanvasRenderingContext2D, world: World): void {
@@ -159,6 +160,40 @@ export class Renderer {
         ctx.fillStyle = MAT_COLORS[m];
         ctx.fillRect(x * cell, y * cell, cell, cell);
       }
+    }
+  }
+
+  /** Parallax sky: sun, drifting clouds, and distant rolling hills for depth. */
+  private worldBackground(ctx: CanvasRenderingContext2D, world: World): void {
+    const cam = world.camera;
+    // Sun.
+    this.glowCircle(ctx, W * 0.8, 110, 46, 'rgba(255,240,185,0.95)', 48);
+    // Clouds (slow parallax).
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    for (let i = 0; i < 6; i++) {
+      const cx = ((i * 360 - cam.x * 0.12) % (W + 300) + W + 300) % (W + 300) - 150;
+      const cy = 70 + ((i * 53) % 120);
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 46, 20, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 34, cy + 6, 34, 16, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx - 30, cy + 8, 28, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    // Distant hill silhouettes (two parallax layers).
+    const layers = [{ p: 0.25, col: '#2c4c5e', base: H * 0.62, amp: 70 }, { p: 0.45, col: '#34607a', base: H * 0.72, amp: 55 }];
+    for (const L of layers) {
+      ctx.fillStyle = L.col;
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      for (let x = 0; x <= W; x += 24) {
+        const wx = x + cam.x * L.p;
+        ctx.lineTo(x, L.base + Math.sin(wx * 0.004) * L.amp + Math.sin(wx * 0.013) * 18);
+      }
+      ctx.lineTo(W, H);
+      ctx.closePath();
+      ctx.fill();
     }
   }
 
@@ -314,7 +349,7 @@ export class Renderer {
 
   private effigy(ctx: CanvasRenderingContext2D, x: number, baseY: number, color: string): void {
     ctx.save();
-    ctx.globalAlpha = 0.5;
+    ctx.globalAlpha = 0.18;
     ctx.strokeStyle = color;
     ctx.shadowColor = color;
     ctx.shadowBlur = 30;
