@@ -11,7 +11,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.7 · powder chemistry arena (fire/water/lava/acid/boom)';
+const VERSION = 'v0.8 · electricity (electrified water/metal) + metal';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {

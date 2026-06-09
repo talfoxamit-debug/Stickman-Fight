@@ -16,9 +16,11 @@ export enum Mat {
   Ice,
   Gunpowder,
   Plant,
+  Metal,
+  Spark,
 }
 
-export const MAT_COUNT = Mat.Plant + 1;
+export const MAT_COUNT = Mat.Spark + 1;
 
 export enum Cat {
   Empty,
@@ -53,12 +55,14 @@ export const MATERIALS: Record<Mat, MatDef> = {
   [Mat.Ice]: { name: 'Ice', cat: Cat.Solid, rgb: [164, 222, 240], density: 3, flammable: false },
   [Mat.Gunpowder]: { name: 'Gunpowder', cat: Cat.Powder, rgb: [74, 74, 80], density: 1.3, flammable: true },
   [Mat.Plant]: { name: 'Plant', cat: Cat.Solid, rgb: [64, 184, 76], density: 3, flammable: true },
+  [Mat.Metal]: { name: 'Metal', cat: Cat.Solid, rgb: [150, 158, 172], density: 4, flammable: false },
+  [Mat.Spark]: { name: 'Spark', cat: Cat.Energy, rgb: [180, 230, 255], density: 0.1, flammable: false },
 };
 
 /** Brush palette (order = on-screen selection order, keys 1..9,0). */
 export const PAINTABLE: Mat[] = [
   Mat.Sand, Mat.Water, Mat.Oil, Mat.Fire, Mat.Lava,
-  Mat.Acid, Mat.Ice, Mat.Gunpowder, Mat.Wood, Mat.Empty,
+  Mat.Acid, Mat.Gunpowder, Mat.Metal, Mat.Spark, Mat.Empty,
 ];
 
 export function isLiquid(m: Mat): boolean {

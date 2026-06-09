@@ -36,6 +36,10 @@ export class PowderRenderer {
       if (m === Mat.Fire || m === Mat.Ember || m === Mat.Lava) {
         const f = (Math.random() * 50) | 0;
         g = Math.min(255, g + f - 10);
+      } else if ((m === Mat.Water || m === Mat.Metal) && grid.aux[i] > 0) {
+        // Live electricity: flicker bright electric white-blue.
+        const f = (Math.random() * 90) | 0;
+        r = 150 + (f >> 1); g = 220; b = 255;
       }
       data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = alphaFor(m as Mat);
     }

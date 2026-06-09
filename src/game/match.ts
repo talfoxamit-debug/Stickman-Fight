@@ -268,6 +268,11 @@ export class Match {
       for (const b of f.bodies()) {
         const meta = (b as unknown as { meta?: BodyMeta }).meta;
         if (!meta?.part) continue;
+        // Electrified water/metal (or a spark): stun + shock damage. Chains brutally.
+        if (g.isChargedPx(b.position.x, b.position.y)) {
+          f.stagger(now, 200);
+          f.damagePart(meta.part, 3, now);
+        }
         const m = g.matAtPx(b.position.x, b.position.y);
         if (m === Mat.Fire || m === Mat.Ember) {
           f.damagePart(meta.part, 5, now);
