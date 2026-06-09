@@ -5,13 +5,14 @@ import type { Match } from '../game/match';
 import type { Weapon } from '../physics/weapon';
 import type { Fx } from './fx';
 import { PowderRenderer } from '../powder/render';
+import { ARMOR } from '../physics/armor';
 
 const B = CFG.body;
 const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.9 · element weapons (flamethrower/acid/water/cryo/spark)';
+const VERSION = 'v0.10 · material armor (steel/rubber/ceramic) + damage types';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -249,6 +250,20 @@ export class Renderer {
     ctx.lineTo(x2, y2);
     ctx.stroke();
 
+    // Armor plate over the limb (fades as it wears out).
+    const ar = f.armorAt(part);
+    if (ar && !broken) {
+      ctx.strokeStyle = ARMOR[ar.mat].color;
+      ctx.lineWidth = dims.thick + 5;
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.55 + 0.4 * (ar.hp / ar.max);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
     // Wound gashes once a limb is hurt.
     if (!broken && health < 0.8) {
       ctx.shadowBlur = 0;
@@ -308,6 +323,16 @@ export class Renderer {
     ctx.arc(0, 0, B.headRadius, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
+    // Helmet.
+    const ah = f.armorAt('head');
+    if (ah && !broken) {
+      ctx.fillStyle = ARMOR[ah.mat].color;
+      ctx.globalAlpha = 0.7 + 0.3 * (ah.hp / ah.max);
+      ctx.beginPath();
+      ctx.arc(0, -2, B.headRadius + 1, Math.PI, 0);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
     // Goggles (eyes).
     ctx.fillStyle = '#0c0712';
     const ex = f.facing * 4;

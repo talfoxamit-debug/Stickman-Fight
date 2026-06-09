@@ -4,6 +4,7 @@ import { angleDiff, clamp } from '../core/util';
 import type { PlayerInput } from '../core/input';
 import type { BodyMeta, PartName } from '../types';
 import { createWeapon, setWeaponOwner, type Weapon } from './weapon';
+import { ARMOR, DEFAULT_LOADOUT, makeArmor, type ArmorPiece, type DamageType } from './armor';
 
 const { Bodies, Body, Composite, Constraint } = Matter;
 
@@ -62,6 +63,12 @@ export class Fighter {
   justDropped: Weapon[] = [];
   /** Joints severed this step (positions for blood spray); drained by Match. */
   justBroke: { x: number; y: number }[] = [];
+  /** Material-aware armor per limb (absorbs damage, then breaks off). */
+  armor: Partial<Record<PartName, ArmorPiece>> = makeArmor(DEFAULT_LOADOUT);
+
+  armorAt(part: PartName): ArmorPiece | undefined {
+    return this.armor[part];
+  }
 
   coreHealth: number = CFG.health.core;
   maxCore: number = CFG.health.core;
@@ -673,15 +680,25 @@ export class Fighter {
   }
 
   /** Returns the amount of damage actually applied (0 if on cooldown / already broken). */
-  damagePart(part: PartName, amount: number, now: number): number {
+  damagePart(part: PartName, amount: number, now: number, type: DamageType = 'phys'): number {
     if (this.koed || amount <= 0) return 0;
     if (now < this.dodgeUntil) return 0; // i-frames while dodging
     if (now - this.lastHit[part] < CFG.combat.perPartHitCooldownMs) return 0;
     this.lastHit[part] = now;
 
+    // Armor soaks damage (per type) until it wears out and falls off.
+    let dmg = amount;
+    const ar = this.armor[part];
+    if (ar && ar.hp > 0) {
+      const resist = ARMOR[ar.mat].resist[type];
+      ar.hp -= dmg;
+      dmg *= 1 - resist;
+      if (ar.hp <= 0) delete this.armor[part];
+    }
+
     // Core HP drain when the torso or head is struck.
     if (part === 'torso' || part === 'head') {
-      this.coreHealth -= amount * CFG.combat.coreDamageFrac;
+      this.coreHealth -= dmg * CFG.combat.coreDamageFrac;
       if (this.coreHealth <= 0) {
         this.coreHealth = 0;
         this.koed = true;
@@ -690,13 +707,13 @@ export class Fighter {
 
     const j = this.jointByChild.get(part);
     if (j && !j.broken) {
-      j.integrity -= amount;
+      j.integrity -= dmg;
       if (j.integrity <= 0) {
         j.integrity = 0;
         this.breakJoint(j);
       }
     }
-    return amount;
+    return dmg;
   }
 
   private breakJoint(j: Joint): void {

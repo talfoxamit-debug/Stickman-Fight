@@ -70,8 +70,9 @@ acid, get launched by gunpowder, paint your own hazards live.
 
 - [ ] Modular weapon assembly: Forms × Infusions × Mechanisms × Tanks
 - [ ] Weapon runtime honoring assembled stats (mass, reach, contact, infusion effects)
-- [ ] Material-aware armor per limb (steel/ceramic/rubber/ice/wood) with trade-offs +
-      degradation/fall-off
+- [x] Material-aware armor per limb (steel/rubber/ceramic/leather) with real trade-offs
+      (steel conducts shock, rubber insulates, ceramic resists heat) + degradation/fall-off
+- [x] Typed damage (phys/heat/acid/shock/explosive) so armor + chemistry interact
 - [ ] Forge / loadout UI; in-match environmental coating (dip/fill/coat)
 
 **Exit:** craft a *Heavy Flaming Barbed Flail* (etc.) and armor each limb strategically.

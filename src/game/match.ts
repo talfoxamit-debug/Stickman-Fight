@@ -273,17 +273,17 @@ export class Match {
         // Electrified water/metal (or a spark): stun + shock damage. Chains brutally.
         if (g.isChargedPx(b.position.x, b.position.y)) {
           f.stagger(now, 200);
-          f.damagePart(meta.part, 3, now);
+          f.damagePart(meta.part, 3, now, 'shock');
         }
         const m = g.matAtPx(b.position.x, b.position.y);
         if (m === Mat.Fire || m === Mat.Ember) {
-          f.damagePart(meta.part, 5, now);
+          f.damagePart(meta.part, 5, now, 'heat');
           Body.setVelocity(b, { x: b.velocity.x, y: b.velocity.y - 0.4 });
         } else if (m === Mat.Lava) {
-          f.damagePart(meta.part, 11, now);
+          f.damagePart(meta.part, 11, now, 'heat');
           Body.setVelocity(b, { x: b.velocity.x * 0.96, y: b.velocity.y - 0.5 });
         } else if (m === Mat.Acid) {
-          f.damagePart(meta.part, 7, now);
+          f.damagePart(meta.part, 7, now, 'acid');
         } else if (m === Mat.Water) {
           // Buoyancy + drag (float, slowed).
           Body.setVelocity(b, { x: b.velocity.x * 0.9, y: b.velocity.y * 0.86 - 0.5 });
@@ -313,7 +313,7 @@ export class Match {
             if (d < nearest && meta?.part) { nearest = d; hitPart = meta.part; }
           }
         }
-        if (hitPart) f.damagePart(hitPart, 26 * (1 - nearest / ex.r), now);
+        if (hitPart) f.damagePart(hitPart, 26 * (1 - nearest / ex.r), now, 'explosive');
       }
       this.fx.impact(ex.x, ex.y, 26, '#ffcf4d');
       this.fx.shake(16);
