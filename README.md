@@ -90,12 +90,14 @@ TypeScript · Vite · Matter.js (rigid-body ragdolls) · custom cellular-automat
 engine (typed arrays + Canvas/ImageData) · Howler (audio) · Gamepad + dual-keyboard
 input · localStorage saves. No backend; runs in any modern browser and deploys static.
 
-## Planned modes
+## Modes
 
-- **Campaign (vs AI)** — themed elemental bosses; unlock weapon parts, armor & elements.
-- **Versus (local 2P)** — bring your unlocked loadout, pick an arena, best-of-N.
-- **The Lab (Sandbox)** — full powder sandbox + every part; invent and break things.
-- **Trials** — technique & environment-kill challenges.
-- **Survival / Expedition** — Terraria-style open world + Arc-Raiders-style extraction
-  runs: explore, gather, fight zombies & monsters, harvest them for crafting, level up an
-  RPG character, and **evolve** into branches (winged flier, underground digger, and more).
+Pick from the **main menu** (press `1`/`2`/`3`):
+
+- **Versus (local 2P)** ✅ — two humans, one keyboard, best of 3.
+- **Solo vs AI** ✅ — fight the bot (which now blocks, dodges, and uses heavies).
+- **Sandbox / Lab** ✅ — endless brawl + free chemistry painting to experiment.
+
+Planned: **Campaign** (themed elemental bosses + unlocks), **Trials**, and the big
+**Survival / Expedition** mode (Terraria-style world + Arc-Raiders extraction runs,
+monsters, crafting, RPG leveling, and **evolution branches** — winged flier, digger…).

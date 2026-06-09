@@ -20,6 +20,7 @@ export interface FxSink {
 }
 
 export type MatchState = 'intro' | 'fight' | 'roundover' | 'matchover';
+export type GameMode = 'versus' | 'solo' | 'sandbox';
 
 const FIGHTER_SETUP = [
   { color: '#22e3ff', accent: '#aef9ff', name: 'P1', weaponIndex: 0 },
@@ -47,7 +48,8 @@ export class Match {
   private hitstopSteps = 0;
   private prevGrab: [boolean, boolean] = [false, false];
 
-  constructor(private fx: FxSink) {
+  constructor(private fx: FxSink, public mode: GameMode = 'versus') {
+    this.botEnabled = mode === 'solo' || mode === 'sandbox';
     this.engine = Engine.create();
     this.engine.gravity.y = CFG.sim.gravityY;
     this.world = this.engine.world;
@@ -473,7 +475,12 @@ export class Match {
 
     if (this.state === 'roundover') {
       if (this.stateTimer <= 0) {
-        if (this.scores[this.roundWinner] >= CFG.rounds.winsNeeded) {
+        if (this.mode === 'sandbox') {
+          // Endless: just reset and keep brawling.
+          this.round++;
+          this.resetFighters();
+          this.beginRound();
+        } else if (this.scores[this.roundWinner] >= CFG.rounds.winsNeeded) {
           this.matchWinner = this.roundWinner;
           this.message = `${this.fighters[this.matchWinner].name} WINS THE PARTY!`;
           this.state = 'matchover';

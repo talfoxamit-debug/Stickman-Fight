@@ -12,7 +12,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.10 · material armor (steel/rubber/ceramic) + damage types';
+const VERSION = 'v0.11 · main menu + modes (versus / solo / sandbox)';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
