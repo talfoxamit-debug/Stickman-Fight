@@ -35,7 +35,7 @@ describe('powder / chemistry', () => {
   });
 
   it('a full chemistry match runs without NaN', () => {
-    const fx: FxSink = { impact() {}, blood() {}, confetti() {}, shake() {} };
+    const fx: FxSink = { impact() {}, blood() {}, confetti() {}, shake() {}, sound() {} };
     const m = new Match(fx); m.botEnabled = true; const p1 = new Bot();
     let t = 0;
     for (let i = 0; i < 60 * 12 && m.state !== 'matchover'; i++) {

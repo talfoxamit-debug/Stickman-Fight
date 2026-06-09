@@ -15,6 +15,9 @@ const ctx = canvas.getContext('2d')!;
 
 const input = new Input(canvas);
 const fx = new Fx();
+// Audio needs a user gesture to start (browser autoplay policy).
+window.addEventListener('keydown', () => fx.audio.resume());
+window.addEventListener('pointerdown', () => fx.audio.resume());
 let match = new Match(fx, 'sandbox'); // a lively brawl plays behind the menu
 let world: World | null = null;
 const renderer = new Renderer(ctx);
@@ -66,6 +69,8 @@ function stepFixed(dtReal: number, fn: () => void): void {
 function frame(now: number): void {
   const dtReal = Math.min(now - last, 100);
   last = now;
+
+  if (input.consumePressed('KeyN')) fx.audio.toggleMute();
 
   if (screen === 'menu') {
     for (const m of MODES) if (input.consumePressed(`Digit${m.key}`)) startMode(m.mode);

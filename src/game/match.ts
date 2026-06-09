@@ -11,6 +11,7 @@ import { PowderGrid } from '../powder/grid';
 import { Mat } from '../powder/materials';
 import { loadMeta, saveMeta, xpForLevel, upgradeCost, type SurvivalMeta, type UpgradeKey } from './save';
 import { pickArchetype, type MonsterArchetype } from './monsters';
+import type { SoundName } from '../audio/audio';
 
 const { Engine, Composite, Bodies, Body, Events } = Matter;
 
@@ -19,6 +20,7 @@ export interface FxSink {
   blood(x: number, y: number, amount: number): void;
   confetti(x: number, y: number): void;
   shake(amount: number): void;
+  sound(name: SoundName, vol?: number): void;
 }
 
 export type MatchState = 'intro' | 'fight' | 'roundover' | 'matchover' | 'prep';
@@ -177,6 +179,10 @@ export class Match {
     this.handleGrabs(inputs);
     this.drainDroppedWeapons();
     this.drainBreaks();
+    for (const f of this.fighters) {
+      for (const ev of f.soundEvents) this.fx.sound(ev as SoundName);
+      f.soundEvents.length = 0;
+    }
     this.faceOpponents();
     this.checkRingOut();
     if (this.mode === 'survival') this.advanceSurvival(now);
@@ -251,6 +257,7 @@ export class Match {
           const px = fighter.torsoBody.position.x;
           const py = fighter.torsoBody.position.y - 18;
           this.fx.impact(px, py, 18, '#ffffff');
+          this.fx.sound('parry');
           this.fx.shake(11);
           this.hitstopSteps = Math.max(this.hitstopSteps, 5);
           return; // parried: no damage
@@ -258,6 +265,7 @@ export class Match {
         dmg *= CFG.combat.blockDamageMul;
         knock *= CFG.combat.blockKnockMul;
         this.fx.impact(other.position.x, other.position.y, 10, '#bfe9ff'); // guard spark
+        this.fx.sound('block');
       }
     }
 
@@ -267,6 +275,7 @@ export class Match {
       const cx = (target.position.x + other.position.x) / 2;
       const cy = (target.position.y + other.position.y) / 2;
       this.fx.blood(cx, cy, applied);
+      this.fx.sound('hit', Math.min(1, 0.45 + applied / 30));
       if (oMeta.kind === 'weapon') this.fx.impact(cx, cy, applied * 0.5, '#fff2a8'); // blade spark
       if (applied > 10) {
         this.fx.shake(Math.min(18, applied * 0.5));
@@ -340,6 +349,7 @@ export class Match {
         if (hitPart) f.damagePart(hitPart, 26 * (1 - nearest / ex.r), now, 'explosive');
       }
       this.fx.impact(ex.x, ex.y, 26, '#ffcf4d');
+      this.fx.sound('boom');
       this.fx.shake(16);
       this.hitstopSteps = Math.max(this.hitstopSteps, 4);
     }
@@ -617,6 +627,7 @@ export class Match {
       player.damagePart('torso', 18, this.simNow, 'explosive');
       this.grid.paintPx(x, y, Mat.Fire, 22);
       this.fx.impact(x, y, 28, '#ffcf4d');
+      this.fx.sound('boom');
       this.fx.shake(16);
       this.hitstopSteps = Math.max(this.hitstopSteps, 4);
     }

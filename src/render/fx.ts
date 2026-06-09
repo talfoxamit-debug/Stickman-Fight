@@ -1,6 +1,7 @@
 import { CFG } from '../config';
 import { randRange, pick } from '../core/util';
 import type { FxSink } from '../game/match';
+import { Audio, type SoundName } from '../audio/audio';
 
 interface Particle {
   x: number;
@@ -25,6 +26,11 @@ export class Fx implements FxSink {
   private shakeAmt = 0;
   shakeX = 0;
   shakeY = 0;
+  audio = new Audio();
+
+  sound(name: SoundName, vol = 1): void {
+    this.audio.play(name, vol);
+  }
 
   impact(x: number, y: number, strength: number, color: string): void {
     const n = Math.min(24, 4 + Math.floor(strength));
@@ -65,6 +71,7 @@ export class Fx implements FxSink {
   }
 
   confetti(x: number, y: number): void {
+    this.audio.play('ko');
     for (let i = 0; i < 90; i++) {
       const a = randRange(0, Math.PI * 2);
       const sp = randRange(2, 8);

@@ -13,6 +13,7 @@ import { Bot } from '../game/bot';
 import { pickArchetype } from '../game/monsters';
 import type { BodyMeta } from '../types';
 import type { FxSink } from '../game/match';
+import type { SoundName } from '../audio/audio';
 
 const { Engine, Composite, Body, Events } = Matter;
 const C = CFG.combat;
@@ -80,6 +81,9 @@ export class World {
     for (const m of this.monsters) this.blockWalls(m);
     this.mineWithSwing(now, input);
     this.handleDeaths(now);
+    for (const ev of this.player.soundEvents) this.fx.sound(ev as SoundName);
+    this.player.soundEvents.length = 0;
+    for (const m of this.monsters) m.soundEvents.length = 0; // don't spam enemy swings
     this.clampSpeeds();
     this.centerCamera();
   }
@@ -99,6 +103,7 @@ export class World {
     m.speedMul = a.speedMul ?? 1;
     this.monsters.push(m);
     this.bots.push(new Bot());
+    this.fx.sound('spawn', 0.6);
   }
 
   private mineWithSwing(now: number, input: PlayerInput): void {
@@ -110,6 +115,7 @@ export class World {
     const py = w ? w.body.position.y : this.player.handPos().y;
     const mined = this.grid.digPx(px, py, this.grid.cell * (this.player.evolution === 'burrower' ? 2.2 : 1.2));
     for (const [m, n] of mined) this.inventory.set(m, (this.inventory.get(m) ?? 0) + n);
+    if (mined.size > 0) this.fx.sound('dig');
   }
 
   private handleDeaths(now: number): void {

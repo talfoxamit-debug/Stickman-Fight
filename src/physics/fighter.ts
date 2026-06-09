@@ -66,6 +66,8 @@ export class Fighter {
   justDropped: Weapon[] = [];
   /** Joints severed this step (positions for blood spray); drained by Match. */
   justBroke: { x: number; y: number }[] = [];
+  /** Sound cues emitted this step ('jump'|'swing'|'heavy'|'dodge'); drained by the mode. */
+  soundEvents: string[] = [];
   /** Material-aware armor per limb (absorbs damage, then breaks off). */
   armor: Partial<Record<PartName, ArmorPiece>> = makeArmor(DEFAULT_LOADOUT);
 
@@ -388,6 +390,7 @@ export class Fighter {
       Body.setVelocity(b, { x: b.velocity.x, y: -s });
     }
     this.grounded = false;
+    this.soundEvents.push('jump');
   }
 
   private tryDodge(now: number, dir: number): void {
@@ -395,6 +398,7 @@ export class Fighter {
       this.dodgeDir = dir;
       this.dodgeUntil = now + CFG.control.dodgeMs;
       this.dodgeCooldownUntil = now + CFG.control.dodgeCooldownMs;
+      this.soundEvents.push('dodge');
       this.lastTapDir = 0;
       this.lastTapAt = -9999;
       const t = this.parts.torso;
@@ -471,6 +475,7 @@ export class Fighter {
   }
 
   private begin(now: number, motion: AttackMotion, dir: number, def: AttackDef, limb?: 'L' | 'R'): void {
+    this.soundEvents.push(motion === 'heavy' ? 'heavy' : 'swing');
     this.attack = {
       motion, dir, start: now, antMs: def.antMs, strikeMs: def.strikeMs, omega: def.omega,
       lunge: def.lunge, dmgMul: def.dmgMul, knock: def.knock, lunged: false, limb,
