@@ -15,7 +15,8 @@ export class World {
   grid: WorldGrid;
   player: Fighter;
   monsters: Fighter[] = [];
-  camera = { x: 0, y: 0 };
+  camera = { x: 0, y: 0 }; // focus point (world coords) the camera centers on
+  zoom = 0.55; // zoomed out so the character is small in a vast world
   inventory = new Map<Mat, number>();
   lastMined: Mat | null = null;
 
@@ -37,9 +38,11 @@ export class World {
   }
 
   private centerCamera(): void {
-    const vw = CFG.view.width, vh = CFG.view.height;
-    this.camera.x = clamp(this.player.torsoBody.position.x - vw / 2, 0, Math.max(0, this.grid.widthPx - vw));
-    this.camera.y = clamp(this.player.torsoBody.position.y - vh / 2, 0, Math.max(0, this.grid.heightPx - vh));
+    const halfW = CFG.view.width / (2 * this.zoom);
+    const halfH = CFG.view.height / (2 * this.zoom);
+    const px = this.player.torsoBody.position.x, py = this.player.torsoBody.position.y;
+    this.camera.x = this.grid.widthPx > 2 * halfW ? clamp(px, halfW, this.grid.widthPx - halfW) : this.grid.widthPx / 2;
+    this.camera.y = this.grid.heightPx > 2 * halfH ? clamp(py, halfH, this.grid.heightPx - halfH) : this.grid.heightPx / 2;
   }
 
   step(now: number, input: PlayerInput): void {
@@ -51,22 +54,23 @@ export class World {
     this.centerCamera();
   }
 
-  /** Stop a fighter from walking into solid terrain (the surface/cave is handled by
-   *  the ground-sampler stand support; this blocks horizontal penetration). */
+  /** Ride gentle slopes (stand-support does the lifting); block only true cliffs
+   *  taller than a step. Lets the ragdoll walk over chunky terrain without sticking. */
   private blockWalls(f: Fighter): void {
     const t = f.torsoBody;
-    const hw = 13;
-    for (const oy of [-12, 8, 22]) {
-      if (t.velocity.x > 0 && this.grid.isSolidPx(t.position.x + hw, t.position.y + oy)) {
-        Body.setVelocity(t, { x: 0, y: t.velocity.y });
-        Body.setPosition(t, { x: ((t.position.x + hw) / this.grid.cell | 0) * this.grid.cell - hw, y: t.position.y });
-        break;
-      }
-      if (t.velocity.x < 0 && this.grid.isSolidPx(t.position.x - hw, t.position.y + oy)) {
-        Body.setVelocity(t, { x: 0, y: t.velocity.y });
-        Body.setPosition(t, { x: (((t.position.x - hw) / this.grid.cell | 0) + 1) * this.grid.cell + hw, y: t.position.y });
-        break;
-      }
+    const dir = Math.sign(t.velocity.x);
+    if (dir === 0) return;
+    const hw = 16;
+    const frontX = t.position.x + dir * hw;
+    const curGround = this.grid.groundBelowPx(t.position.x, t.position.y);
+    const frontGround = this.grid.groundBelowPx(frontX, t.position.y);
+    const stepUp = curGround - frontGround; // >0 means the ground ahead is higher
+    const maxStep = this.grid.cell * 1.6; // can climb up to ~1.5 tiles automatically
+    if (stepUp > maxStep) {
+      // A wall/cliff: stop and nudge back to its edge.
+      Body.setVelocity(t, { x: 0, y: t.velocity.y });
+      const edge = (Math.round(frontX / this.grid.cell) * this.grid.cell) - dir * hw;
+      Body.setPosition(t, { x: edge, y: t.position.y });
     }
   }
 
@@ -74,16 +78,18 @@ export class World {
     if (!input.attack || now < this.digCdUntil) return;
     this.digCdUntil = now + 110;
     const p = this.player.torsoBody.position;
-    let tx = p.x + this.player.facing * 42;
+    let tx = p.x + this.player.facing * this.grid.cell * 1.6;
     let ty = p.y + 16;
     if (input.aimX != null && input.aimY != null) {
-      const wx = this.camera.x + input.aimX, wy = this.camera.y + input.aimY;
+      // Screen -> world through the zoom.
+      const wx = this.camera.x + (input.aimX - CFG.view.width / 2) / this.zoom;
+      const wy = this.camera.y + (input.aimY - CFG.view.height / 2) / this.zoom;
       const dx = wx - p.x, dy = wy - p.y, d = Math.hypot(dx, dy) || 1;
-      const reach = 78;
+      const reach = this.grid.cell * 3.5;
       if (d > reach) { tx = p.x + (dx / d) * reach; ty = p.y + (dy / d) * reach; }
       else { tx = wx; ty = wy; }
     }
-    const mined = this.grid.digPx(tx, ty, this.player.evolution === 'burrower' ? 22 : 14);
+    const mined = this.grid.digPx(tx, ty, this.grid.cell * (this.player.evolution === 'burrower' ? 2.4 : 1.4));
     for (const [m, n] of mined) {
       this.inventory.set(m, (this.inventory.get(m) ?? 0) + n);
       this.lastMined = m;

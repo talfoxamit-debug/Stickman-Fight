@@ -19,7 +19,7 @@ export class WorldGrid {
   spawnX = 0;
   spawnY = 0;
 
-  constructor(cols = 420, rows = 220, cell = 10) {
+  constructor(cols = 360, rows = 200, cell = 44) {
     this.cols = cols;
     this.rows = rows;
     this.cell = cell;
@@ -115,10 +115,19 @@ export class WorldGrid {
       }
     }
 
-    // Spawn on the surface near the middle.
+    // Clear a clean spawn pocket (no trees/overhangs) near the middle.
     const sx = (cols / 2) | 0;
+    for (let dx = -3; dx <= 3; dx++) {
+      const cx = sx + dx;
+      if (cx < 0 || cx >= cols) continue;
+      const s = surfAt(cx);
+      for (let dy = -12; dy < 0; dy++) {
+        const yy = s + dy;
+        if (yy >= 0) this.tiles[this.idx(cx, yy)] = Mat.Empty;
+      }
+    }
     this.spawnX = sx * this.cell + this.cell / 2;
-    this.spawnY = (surfAt(sx) - 8) * this.cell;
+    this.spawnY = (surfAt(sx) - 5) * this.cell;
   }
 
   // ---- interaction --------------------------------------------------------

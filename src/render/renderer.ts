@@ -21,7 +21,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.18 · WORLD mode — Terraria-style dig & explore (Stage 1)';
+const VERSION = 'v0.19 · WORLD scale fix — small character, vast world';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -94,15 +94,18 @@ export class Renderer {
     ctx.fillRect(0, 0, W, H);
 
     ctx.save();
-    ctx.translate(-Math.round(world.camera.x), -Math.round(world.camera.y));
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(world.zoom, world.zoom);
+    ctx.translate(-world.camera.x, -world.camera.y);
     this.terrain(ctx, world);
     for (const m of world.monsters) this.fighter(ctx, m);
     this.fighter(ctx, world.player);
     fx.draw(ctx);
     ctx.restore();
 
-    // Depth darkening (caves feel dark the deeper you go).
-    const depth = Math.min(0.82, world.camera.y / (world.grid.heightPx * 0.6));
+    // Depth darkening (bright at the surface, dark deep underground).
+    const surfaceY = world.grid.rows * 0.32 * world.grid.cell;
+    const depth = Math.max(0, Math.min(0.82, (world.camera.y - surfaceY) / (world.grid.heightPx * 0.35)));
     if (depth > 0.02) { ctx.fillStyle = `rgba(2,4,10,${depth})`; ctx.fillRect(0, 0, W, H); }
 
     this.worldHud(ctx, world);
@@ -115,10 +118,12 @@ export class Renderer {
   private terrain(ctx: CanvasRenderingContext2D, world: World): void {
     const g = world.grid;
     const cell = g.cell;
-    const x0 = Math.max(0, Math.floor(world.camera.x / cell));
-    const x1 = Math.min(g.cols - 1, Math.ceil((world.camera.x + W) / cell));
-    const y0 = Math.max(0, Math.floor(world.camera.y / cell));
-    const y1 = Math.min(g.rows - 1, Math.ceil((world.camera.y + H) / cell));
+    const halfW = W / (2 * world.zoom) + cell;
+    const halfH = H / (2 * world.zoom) + cell;
+    const x0 = Math.max(0, Math.floor((world.camera.x - halfW) / cell));
+    const x1 = Math.min(g.cols - 1, Math.ceil((world.camera.x + halfW) / cell));
+    const y0 = Math.max(0, Math.floor((world.camera.y - halfH) / cell));
+    const y1 = Math.min(g.rows - 1, Math.ceil((world.camera.y + halfH) / cell));
     for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1; x++) {
         const m = g.at(x, y);
