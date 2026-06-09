@@ -7,6 +7,7 @@ import { MATERIALS, PAINTABLE } from './powder/materials';
 import { UPGRADES } from './game/save';
 import { World } from './world/world';
 import { EVOLUTIONS } from './physics/fighter';
+import { SKILLS, skillNodePos } from './game/skills';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 canvas.width = CFG.view.width;
@@ -81,8 +82,14 @@ function frame(now: number): void {
     if (input.consumePressed('KeyM') || input.consumePressed('Escape')) { world = null; screen = 'menu'; }
     else {
       if (input.consumePressed('KeyP')) paused = !paused;
+      if (input.consumePressed('KeyK')) world.skillTreeOpen = !world.skillTreeOpen;
       if (input.consumePressed('KeyE')) world.crafting = !world.crafting;
-      if (world.crafting) {
+      if (world.skillTreeOpen) {
+        if (input.consumeClick()) {
+          const cur = input.cursor();
+          if (cur) for (const s of SKILLS) { const np = skillNodePos(s); if (Math.abs(cur.x - np.x) < 130 && Math.abs(cur.y - np.y) < 26) { world.learnSkill(s.id); break; } }
+        }
+      } else if (world.crafting) {
         for (let i = 0; i < world.craftDefs.length; i++) if (input.consumePressed(`Digit${i + 1}`)) world.craft(i);
       } else {
         if (input.consumePressed('KeyZ')) {
@@ -90,6 +97,7 @@ function frame(now: number): void {
           world.player.evolution = e;
           evoLabel = e;
         }
+        for (let i = 0; i < 4; i++) if (input.consumePressed(`Digit${i + 1}`)) world.useSkill(i, simTime);
         const w = world;
         stepFixed(dtReal, () => w.step(simTime, input.player(0)));
       }

@@ -14,6 +14,7 @@ import { pickArchetype } from '../game/monsters';
 import type { BodyMeta } from '../types';
 import type { FxSink } from '../game/match';
 import type { SoundName } from '../audio/audio';
+import { type CharState, xpForCharLevel, passives, canLearn, SKILLS, SKILL_BY_ID } from '../game/skills';
 
 const { Engine, Composite, Body, Events } = Matter;
 const C = CFG.combat;
@@ -35,6 +36,14 @@ export class World {
   message = '';
   crafting = false;
   upgrades = { hp: 0, dmg: 0, spd: 0, wpn: 0 };
+  // RPG character: level, XP, skill tree, mana.
+  char: CharState = { level: 1, xp: 0, skillPoints: 1, learned: {} };
+  mana = 30;
+  maxMana = 30;
+  skillTreeOpen = false;
+  slots: string[] = []; // equipped active skill ids (quickbar 1-4)
+  private skillCdUntil: Record<string, number> = {};
+  private regenAcc = 0;
   private messageUntil = 0;
 
   private digCdUntil = 0;
@@ -87,6 +96,15 @@ export class World {
     for (const ev of this.player.soundEvents) this.fx.sound(ev as SoundName);
     this.player.soundEvents.length = 0;
     for (const m of this.monsters) m.soundEvents.length = 0; // don't spam enemy swings
+    // Mana + HP regen.
+    this.regenAcc += CFG.sim.fixedDt;
+    if (this.regenAcc >= 250) {
+      const sec = this.regenAcc / 1000;
+      this.mana = Math.min(this.maxMana, this.mana + 8 * sec);
+      const hp = passives(this.char.learned).regenPerSec;
+      if (hp > 0 && !this.player.koed) this.player.coreHealth = Math.min(this.player.maxCore, this.player.coreHealth + hp * sec);
+      this.regenAcc = 0;
+    }
     this.clampSpeeds();
     this.centerCamera();
   }
@@ -150,6 +168,7 @@ export class World {
       const m = this.monsters[i];
       if (!m.koed) continue;
       this.kills++;
+      this.addXP(8 + ((m.maxCore / 4) | 0));
       this.loot += 5 + ((m.maxCore / 30) | 0);
       if (Math.random() < 0.45) this.inventory.set(Mat.Ore, (this.inventory.get(Mat.Ore) ?? 0) + 1);
       const p = m.torsoBody.position;
@@ -171,7 +190,7 @@ export class World {
     this.player.destroy();
     this.byId.delete(0);
     this.player = this.makeFighter(0, this.grid.spawnX, this.grid.spawnY, 1, '#22e3ff', '#aef9ff', 'YOU', 0, CFG.health.core, evo);
-    this.applyPlayerUpgrades();
+    this.applyPlayerStats();
     this.playerDeadAt = 0;
   }
 
@@ -284,19 +303,118 @@ export class World {
     else if (i === 1) this.upgrades.dmg++;
     else if (i === 2) this.upgrades.spd++;
     else this.upgrades.wpn++;
-    this.applyPlayerUpgrades();
+    this.applyPlayerStats();
     this.fx.sound('parry');
     return true;
   }
 
-  private applyPlayerUpgrades(): void {
+  /** Recompute player stats from Forge upgrades + skill-tree passives. */
+  private applyPlayerStats(): void {
     const u = this.upgrades;
-    const newMax = CFG.health.core + u.hp * 30;
+    const p = passives(this.char.learned);
+    const newMax = CFG.health.core + u.hp * 30 + p.hp;
     const ratio = this.player.maxCore > 0 ? this.player.coreHealth / this.player.maxCore : 1;
     this.player.maxCore = newMax;
-    this.player.coreHealth = Math.min(newMax, newMax * ratio + (u.hp ? 30 : 0));
-    this.player.damageMul = 1 + u.dmg * 0.2 + u.wpn * 0.15;
-    this.player.speedMul = 1 + u.spd * 0.12;
+    this.player.coreHealth = Math.min(newMax, Math.max(this.player.coreHealth, newMax * ratio));
+    this.player.damageMul = 1 + u.dmg * 0.2 + u.wpn * 0.15 + p.dmg;
+    this.player.speedMul = 1 + u.spd * 0.12 + p.speed;
+    this.maxMana = 30 + this.char.level * 2 + p.mana;
+    this.mana = Math.min(this.mana, this.maxMana);
+  }
+
+  // ---- skill tree / levels ------------------------------------------------
+
+  addXP(amount: number): void {
+    this.char.xp += amount;
+    while (this.char.xp >= xpForCharLevel(this.char.level)) {
+      this.char.xp -= xpForCharLevel(this.char.level);
+      this.char.level++;
+      this.char.skillPoints += 3;
+      this.applyPlayerStats();
+      this.player.coreHealth = this.player.maxCore;
+      this.mana = this.maxMana;
+      this.fx.sound('ko');
+      this.flash(`LEVEL ${this.char.level}! +3 skill points`, this.simNow);
+    }
+  }
+
+  learnSkill(id: string): boolean {
+    const s = SKILL_BY_ID[id];
+    if (!s || !canLearn(s, this.char)) { this.fx.sound('ui'); return false; }
+    this.char.learned[id] = (this.char.learned[id] ?? 0) + 1;
+    this.char.skillPoints--;
+    this.applyPlayerStats();
+    this.equipSlots();
+    this.fx.sound('parry');
+    return true;
+  }
+
+  private equipSlots(): void {
+    this.slots = SKILLS.filter((s) => s.kind === 'active' && (this.char.learned[s.id] ?? 0) > 0).map((s) => s.id).slice(0, 4);
+  }
+
+  skillCooldown(id: string, now: number): number {
+    return Math.max(0, (this.skillCdUntil[id] ?? 0) - now);
+  }
+
+  useSkill(slot: number, now: number): void {
+    const id = this.slots[slot];
+    if (!id || this.player.koed || this.skillTreeOpen) return;
+    const s = SKILL_BY_ID[id];
+    if (now < (this.skillCdUntil[id] ?? 0) || this.mana < (s.manaCost ?? 0)) { this.fx.sound('ui'); return; }
+    this.mana -= s.manaCost ?? 0;
+    this.skillCdUntil[id] = now + (s.cooldownMs ?? 0);
+    this.castSkill(id, now);
+  }
+
+  private castSkill(id: string, now: number): void {
+    const lvl = this.char.learned[id] ?? 1;
+    const p = passives(this.char.learned);
+    const t = this.player.torsoBody.position;
+    const dir = this.player.facing;
+    if (id === 'power') { this.aoeDamage(t.x, t.y, 110, (14 + lvl * 6) * p.spell, 8, 'phys'); this.fx.impact(t.x, t.y, 26, '#ffd0a0'); this.fx.sound('heavy'); }
+    else if (id === 'whirl') { this.aoeDamage(t.x, t.y, 160, (18 + lvl * 7) * p.spell, 16, 'phys'); this.fx.impact(t.x, t.y, 34, '#ffffff'); this.fx.shake(14); this.fx.sound('boom'); }
+    else if (id === 'firebolt') { this.coneDamage(t.x, t.y, dir, 200, (12 + lvl * 7) * p.spell, 6, 'heat'); for (let i = 0; i < 3; i++) this.fx.impact(t.x + dir * (60 + i * 50), t.y, 16, '#ff7a18'); this.fx.sound('zap'); }
+    else if (id === 'frost') { this.aoeDamage(t.x, t.y, 150, (8 + lvl * 5) * p.spell, 4, 'heat'); this.fx.impact(t.x, t.y, 24, '#bfe9ff'); this.fx.sound('zap'); }
+    else if (id === 'bolt') { this.chainBolt(t.x, t.y, (16 + lvl * 8) * p.spell, 3); this.fx.sound('zap'); }
+    else if (id === 'mend') { const heal = 30 + lvl * 30; this.player.coreHealth = Math.min(this.player.maxCore, this.player.coreHealth + heal); this.fx.confetti(t.x, t.y); this.fx.sound('parry'); this.flash(`+${heal} HP`, now); }
+  }
+
+  private aoeDamage(x: number, y: number, r: number, dmg: number, knock: number, type: 'phys' | 'heat'): void {
+    for (const m of this.monsters) {
+      const c = m.torsoBody.position;
+      const d = Math.hypot(c.x - x, c.y - y);
+      if (d > r) continue;
+      const applied = m.damagePart('torso', dmg, this.simNow, type);
+      if (knock > 0) { const inv = 1 / (d || 1); Body.setVelocity(m.torsoBody, { x: m.torsoBody.velocity.x + (c.x - x) * inv * knock, y: m.torsoBody.velocity.y - 4 }); }
+      if (applied > 0) { this.fx.blood(c.x, c.y, applied); this.lifestealFrom(applied); }
+    }
+  }
+
+  private coneDamage(x: number, y: number, dir: number, len: number, dmg: number, knock: number, type: 'phys' | 'heat'): void {
+    for (const m of this.monsters) {
+      const c = m.torsoBody.position;
+      if (Math.sign(c.x - x) !== dir) continue;
+      if (Math.abs(c.x - x) > len || Math.abs(c.y - y) > 90) continue;
+      const applied = m.damagePart('torso', dmg, this.simNow, type);
+      Body.setVelocity(m.torsoBody, { x: m.torsoBody.velocity.x + dir * knock, y: m.torsoBody.velocity.y - 3 });
+      if (applied > 0) { this.fx.blood(c.x, c.y, applied); this.lifestealFrom(applied); }
+    }
+  }
+
+  private chainBolt(x: number, y: number, dmg: number, n: number): void {
+    const sorted = [...this.monsters].sort((a, b) => Math.hypot(a.torsoBody.position.x - x, a.torsoBody.position.y - y) - Math.hypot(b.torsoBody.position.x - x, b.torsoBody.position.y - y));
+    for (const m of sorted.slice(0, n)) {
+      const c = m.torsoBody.position;
+      const applied = m.damagePart('torso', dmg, this.simNow, 'shock');
+      m.stagger(this.simNow, 250);
+      if (applied > 0) { this.fx.impact(c.x, c.y, 18, '#bfe9ff'); this.fx.blood(c.x, c.y, applied); this.lifestealFrom(applied); }
+    }
+  }
+
+  private lifestealFrom(applied: number): void {
+    const ls = passives(this.char.learned).lifesteal;
+    if (ls > 0) this.player.coreHealth = Math.min(this.player.maxCore, this.player.coreHealth + applied * ls);
   }
 
   /** Depth below the surface in tiles (for the HUD). */

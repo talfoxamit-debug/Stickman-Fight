@@ -34,6 +34,7 @@ export class Input {
   private mLeft = false;
   private mRight = false;
   private mActive = false; // becomes true once the mouse is used (then P1 aims with it)
+  private mClick = false; // one-shot left-click (for UI)
 
   constructor(private canvas: HTMLCanvasElement) {
     window.addEventListener('keydown', (e) => {
@@ -51,7 +52,7 @@ export class Input {
     });
     canvas.addEventListener('mousedown', (e) => {
       this.mActive = true;
-      if (e.button === 0) this.mLeft = true;
+      if (e.button === 0) { this.mLeft = true; this.mClick = true; }
       if (e.button === 2) this.mRight = true;
     });
     window.addEventListener('mouseup', (e) => {
@@ -93,6 +94,12 @@ export class Input {
 
   isDown(code: string): boolean {
     return this.down.has(code);
+  }
+
+  /** True once per fresh left-click (for UI buttons). */
+  consumeClick(): boolean {
+    if (this.mClick) { this.mClick = false; return true; }
+    return false;
   }
 
   /** Internal-resolution cursor position (or null if the mouse hasn't been used). */

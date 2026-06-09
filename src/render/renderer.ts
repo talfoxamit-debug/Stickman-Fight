@@ -9,6 +9,7 @@ import { ARMOR } from '../physics/armor';
 import { xpForLevel, upgradeCost, UPGRADES } from '../game/save';
 import type { World } from '../world/world';
 import { PALETTE, MAT_COUNT, MATERIALS, Mat } from '../powder/materials';
+import { SKILLS, BRANCHES, skillNodePos, SKILL_BY_ID, canLearn } from '../game/skills';
 
 const MAT_COLORS: string[] = (() => {
   const a: string[] = [];
@@ -21,7 +22,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.25 · cave lighting + verified all modes';
+const VERSION = 'v0.26 · MapleStory/MU skill tree + levels + active skills';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -124,11 +125,92 @@ export class Renderer {
     }
 
     this.worldHud(ctx, world);
+    this.skillBar(ctx, world);
     if (world.crafting) this.craftPanel(ctx, world);
+    if (world.skillTreeOpen) this.skillTree(ctx, world);
     ctx.textAlign = 'right';
     ctx.font = '11px ui-monospace, monospace';
     ctx.fillStyle = 'rgba(124,255,90,0.55)';
     ctx.fillText(VERSION, W - 12, H - 34);
+  }
+
+  /** Active-skill quickbar (keys 1-4) with cooldown sweeps, bottom-center. */
+  private skillBar(ctx: CanvasRenderingContext2D, world: World): void {
+    const now = performance.now();
+    const n = world.slots.length;
+    if (n === 0) return;
+    const sz = 50, gap = 10, total = n * sz + (n - 1) * gap;
+    let x = W / 2 - total / 2;
+    const y = H - 86;
+    for (let i = 0; i < n; i++) {
+      const s = SKILL_BY_ID[world.slots[i]];
+      const cd = world.skillCooldown(s.id, now);
+      const br = BRANCHES.find((b) => b.id === s.branch)!;
+      ctx.fillStyle = 'rgba(8,6,16,0.8)';
+      ctx.fillRect(x, y, sz, sz);
+      ctx.strokeStyle = br.color; ctx.lineWidth = 2; ctx.strokeRect(x, y, sz, sz);
+      ctx.fillStyle = br.color; ctx.textAlign = 'left'; ctx.font = 'bold 11px ui-monospace, monospace';
+      ctx.fillText(`${i + 1}`, x + 4, y + 13);
+      ctx.fillStyle = '#fff'; ctx.font = '9px ui-monospace, monospace';
+      ctx.fillText(s.name.slice(0, 8), x + 3, y + sz - 5);
+      if (cd > 0) {
+        ctx.fillStyle = 'rgba(0,0,0,0.62)';
+        ctx.fillRect(x, y, sz, sz * (cd / (s.cooldownMs ?? 1)));
+      }
+      ctx.fillStyle = world.mana >= (s.manaCost ?? 0) ? '#39d6ff' : '#ff6b6b';
+      ctx.textAlign = 'right'; ctx.font = '9px ui-monospace, monospace';
+      ctx.fillText(`${s.manaCost}`, x + sz - 3, y + 13);
+      x += sz + gap;
+    }
+  }
+
+  private skillTree(ctx: CanvasRenderingContext2D, world: World): void {
+    ctx.fillStyle = 'rgba(6,5,12,0.9)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff'; ctx.shadowColor = '#ff37c8'; ctx.shadowBlur = 20;
+    ctx.font = 'bold 32px ui-monospace, monospace';
+    ctx.fillText('SKILL TREE', W / 2, 70);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ffcf4d'; ctx.font = 'bold 18px ui-monospace, monospace';
+    ctx.fillText(`Level ${world.char.level}   ·   skill points: ${world.char.skillPoints}   ·   XP ${world.char.xp}`, W / 2, 110);
+    // Branch headers.
+    for (let c = 0; c < BRANCHES.length; c++) {
+      ctx.fillStyle = BRANCHES[c].color; ctx.font = 'bold 18px ui-monospace, monospace';
+      ctx.fillText(BRANCHES[c].name, 300 + c * 340, 180);
+    }
+    // Prereq lines.
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 2;
+    for (const s of SKILLS) {
+      if (!s.reqSkill) continue;
+      const a = skillNodePos(SKILL_BY_ID[s.reqSkill]); const b = skillNodePos(s);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y + 26); ctx.lineTo(b.x, b.y - 26); ctx.stroke();
+    }
+    // Nodes.
+    for (const s of SKILLS) {
+      const p = skillNodePos(s);
+      const lvl = world.char.learned[s.id] ?? 0;
+      const br = BRANCHES.find((b) => b.id === s.branch)!;
+      const learnable = canLearn(s, world.char);
+      ctx.save();
+      ctx.fillStyle = lvl > 0 ? br.color : 'rgba(40,40,52,0.95)';
+      if (learnable) { ctx.shadowColor = br.color; ctx.shadowBlur = 16; }
+      ctx.fillRect(p.x - 130, p.y - 26, 260, 52);
+      ctx.restore();
+      ctx.strokeStyle = learnable ? '#fff' : 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = learnable ? 2 : 1;
+      ctx.strokeRect(p.x - 130, p.y - 26, 260, 52);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = lvl > 0 ? '#0c0712' : '#cbd';
+      ctx.font = 'bold 14px ui-monospace, monospace';
+      ctx.fillText(`${s.kind === 'active' ? '◆' : '○'} ${s.name}  ${lvl}/${s.max}`, p.x - 122, p.y - 6);
+      ctx.font = '11px ui-monospace, monospace';
+      ctx.fillStyle = lvl > 0 ? 'rgba(12,7,18,0.85)' : '#8a86a8';
+      ctx.fillText(s.desc, p.x - 122, p.y + 14);
+    }
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#cbb8ff'; ctx.font = '14px ui-monospace, monospace';
+    ctx.fillText('click a glowing node to spend a point  ·  K to close', W / 2, H - 30);
   }
 
   private craftPanel(ctx: CanvasRenderingContext2D, world: World): void {
@@ -226,20 +308,28 @@ export class Renderer {
   }
 
   private worldHud(ctx: CanvasRenderingContext2D, world: World): void {
-    // Player health bar + stats (top-left).
+    // Player vitals + stats (top-left): HP, mana, XP bars.
     const p = world.player;
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(12, 12, 244, 86);
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.fillRect(20, 22, 200, 14);
-    const frac = Math.max(0, p.coreHealth / p.maxCore);
-    ctx.fillStyle = frac > 0.5 ? '#7cff5a' : frac > 0.25 ? '#ffcf4d' : '#ff5a5a';
-    ctx.fillRect(20, 22, 200 * frac, 14);
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(12, 12, 250, 116);
+    const bar = (y: number, frac: number, col: string) => {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(20, y, 200, 12);
+      ctx.fillStyle = col; ctx.fillRect(20, y, 200 * Math.max(0, Math.min(1, frac)), 12);
+    };
+    const hf = p.coreHealth / p.maxCore;
+    bar(22, hf, hf > 0.5 ? '#7cff5a' : hf > 0.25 ? '#ffcf4d' : '#ff5a5a');
+    bar(38, world.mana / world.maxMana, '#39d6ff');
+    bar(54, world.char.xp / (60 + world.char.level * 45), '#ffcf4d');
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'left';
-    ctx.font = '12px ui-monospace, monospace';
-    ctx.fillText(`HP  ·  slain ${world.kills}  ·  loot ${world.loot}  ·  depth ${world.depth()}`, 20, 50);
-    ctx.fillText(`${world.grid.biomeAtPx(p.torsoBody.position.x)}  ·  evolution: ${p.evolution} (Z)`, 20, 66);
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillText(`Lv ${world.char.level}   HP ${world.player.coreHealth | 0}/${world.player.maxCore | 0}   MP ${world.mana | 0}/${world.maxMana}`, 20, 80);
+    ctx.fillText(`slain ${world.kills} · loot ${world.loot} · depth ${world.depth()}`, 20, 96);
+    ctx.fillText(`${world.grid.biomeAtPx(p.torsoBody.position.x)} · evo ${p.evolution} (Z) · K skills · E craft`, 20, 112);
+    if (world.char.skillPoints > 0) {
+      ctx.fillStyle = '#ffcf4d'; ctx.font = 'bold 12px ui-monospace, monospace';
+      ctx.fillText(`★ ${world.char.skillPoints} skill point${world.char.skillPoints > 1 ? 's' : ''} — press K`, 20, 126);
+    }
 
     // Inventory (top-right).
     ctx.textAlign = 'right';
