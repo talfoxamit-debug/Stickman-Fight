@@ -20,9 +20,14 @@ interface Particle {
 const CONFETTI = ['#ff37c8', '#00f0ff', '#ffcf4d', '#7cff5a', '#b18bff', '#ff6b6b', '#ffffff'];
 const BLOOD = ['#c8121b', '#e02030', '#8a0b12', '#ff3b4a', '#a00d16'];
 
+interface FloatText {
+  x: number; y: number; str: string; color: string; size: number; life: number; max: number;
+}
+
 /** Particles + screen shake. Implements FxSink so the Match can poke it directly. */
 export class Fx implements FxSink {
   private parts: Particle[] = [];
+  private texts: FloatText[] = [];
   private shakeAmt = 0;
   shakeX = 0;
   shakeY = 0;
@@ -30,6 +35,10 @@ export class Fx implements FxSink {
 
   sound(name: SoundName, vol = 1): void {
     this.audio.play(name, vol);
+  }
+
+  text(x: number, y: number, str: string, color: string, size = 26): void {
+    this.texts.push({ x, y, str, color, size, life: 750, max: 750 });
   }
 
   impact(x: number, y: number, strength: number, color: string): void {
@@ -106,6 +115,9 @@ export class Fx implements FxSink {
     }
     this.parts = this.parts.filter((p) => p.life > 0 && p.y < CFG.view.height + 40);
 
+    for (const t of this.texts) { t.y -= 0.5 * dt; t.life -= dtMs; }
+    this.texts = this.texts.filter((t) => t.life > 0);
+
     this.shakeAmt *= 0.86;
     if (this.shakeAmt < 0.2) this.shakeAmt = 0;
     this.shakeX = randRange(-this.shakeAmt, this.shakeAmt);
@@ -130,5 +142,21 @@ export class Fx implements FxSink {
       }
     }
     ctx.globalAlpha = 1;
+
+    // Floating combat text — pops big then shrinks/fades as it rises.
+    for (const t of this.texts) {
+      const k = t.life / t.max;
+      const pop = k > 0.8 ? 1.25 - (k - 0.8) * 1.25 : 1; // brief overshoot on spawn
+      ctx.globalAlpha = Math.min(1, k * 1.6);
+      ctx.font = `bold ${Math.round(t.size * pop)}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.strokeText(t.str, t.x, t.y);
+      ctx.fillStyle = t.color;
+      ctx.fillText(t.str, t.x, t.y);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
   }
 }

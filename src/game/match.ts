@@ -11,6 +11,7 @@ import { PowderGrid } from '../powder/grid';
 import { Mat } from '../powder/materials';
 import { loadMeta, saveMeta, xpForLevel, upgradeCost, type SurvivalMeta, type UpgradeKey } from './save';
 import { pickArchetype, type MonsterArchetype } from './monsters';
+import { resolveMelee } from './combat';
 import type { SoundName } from '../audio/audio';
 
 const { Engine, Composite, Bodies, Body, Events } = Matter;
@@ -21,6 +22,8 @@ export interface FxSink {
   confetti(x: number, y: number): void;
   shake(amount: number): void;
   sound(name: SoundName, vol?: number): void;
+  /** Floating combat text (PARRY!, CRUSH!, combo count). Optional on minimal sinks. */
+  text?(x: number, y: number, str: string, color: string, size?: number): void;
 }
 
 export type MatchState = 'intro' | 'fight' | 'roundover' | 'matchover' | 'prep';
@@ -173,6 +176,10 @@ export class Match {
     this.couplePowder(now);
     this.drainExplosions(now);
 
+    // 3c) Deterministic strike resolution (reliable hits + the meaty freeze-frame).
+    this.hitstopSteps = Math.max(this.hitstopSteps, resolveMelee([this.fighters[0], this.fighters[1]], this.fx, now));
+    this.drainLandings();
+
     // 4) Post-step bookkeeping. Handle grabs first (a throw pushes to the drop
     //    queue), then drain the queue so thrown/severed weapons become loose now.
     this.clampVelocities();
@@ -187,6 +194,17 @@ export class Match {
     this.checkRingOut();
     if (this.mode === 'survival') this.advanceSurvival(now);
     else this.advanceRoundFlow(now);
+  }
+
+  /** Hard landings kick up dust + a little shake (weighty feel). */
+  private drainLandings(): void {
+    for (const f of this.fighters) {
+      for (const l of f.justLanded) {
+        this.fx.impact(l.x, l.y, l.power * 0.5, '#cfd6e2');
+        this.fx.shake(Math.min(7, l.power * 0.4));
+      }
+      f.justLanded.length = 0;
+    }
   }
 
   private clampVelocities(): void {
@@ -227,6 +245,9 @@ export class Match {
     // Source must be a different fighter's part/weapon, or a loose weapon.
     const hostile = (oMeta.fighterId >= 0 && oMeta.fighterId !== tMeta.fighterId) || oMeta.kind === 'weapon';
     if (!hostile || oMeta.kind === 'ground') return;
+    // Intentional strikes are resolved by resolveMelee; impact damage is only for
+    // incidental contact (ragdoll shoves, loose/thrown weapons).
+    if (oMeta.fighterId >= 0 && this.fighters[oMeta.fighterId].isStriking(now)) return;
 
     const mul = oMeta.kind === 'weapon' ? CFG.combat.weaponMul : CFG.combat.bodyMul;
     const massFactor = clamp(other.mass / 1.0, 0.6, 2.2);

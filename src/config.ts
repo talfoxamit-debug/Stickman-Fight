@@ -40,6 +40,16 @@ export const CFG = {
   control: {
     runSpeed: 5.2, // target horizontal speed (px/step)
     airControl: 0.55, // fraction of run speed usable in the air
+    // Weighted locomotion: accelerate toward the target speed (a little ramp =
+    // weight), skid harder when reversing, and brake quickly when you let go.
+    accel: 0.95, // ground acceleration (px/step per step)
+    turnDecel: 1.8, // extra decel when reversing direction (the skid that reads as weight)
+    airAccel: 0.42, // weaker control mid-air
+    groundFriction: 0.70, // velocity retained per step with no input (quick, deliberate stop)
+    airFriction: 0.94,
+    runLean: 0.045, // torso lean (rad) per px/step of horizontal speed
+    maxLean: 0.24,
+    landHardVy: 7.5, // fall speed (px/step) above which a landing thumps (dust + shake)
     jumpSpeed: 13.5, // upward velocity on jump
     crippleSpeedMul: 0.45, // movement penalty when both legs are gone
     // Jump feel.
@@ -109,6 +119,18 @@ export const CFG = {
     bodyMul: 0.8,
     maxHitDamage: 34, // base per-hit cap (before the per-attack dmgMul)
     coreDamageFrac: 0.6, // fraction of a torso/head hit that drains core HP
+    // Deterministic strike hitboxes: during a move's active window we sweep the
+    // weapon/fist/foot and reliably hit anyone in range for the move's base damage
+    // (x the fighter's damageMul). Connection no longer depends on physics luck.
+    meleeReach: 16, // extra px around the limb/weapon that counts as a hit
+    // Stamina: every attack + dodge costs it; run out and you're briefly winded.
+    stamina: {
+      max: 100,
+      regenPerSec: 26,
+      regenDelayMs: 420, // pause after spending before it refills
+      windedMs: 750, // locked out of attacks/dodge when it bottoms out
+      cost: { slash: 15, stab: 19, heavy: 32, punch: 11, kick: 17, dodge: 22 },
+    },
     // Defense.
     blockDamageMul: 0.18, // damage taken while guarding (from the front)
     blockKnockMul: 0.3, // knockback taken while guarding
@@ -122,13 +144,14 @@ export const CFG = {
     cockOmega: 0.24, // backswing angular velocity during a slash/heavy anticipation
     stabSpeed: 25, // forward thrust speed of the weapon/hand during a stab
     // antMs = anticipation, strikeMs = strike window, omega = strike spin (slash/heavy),
-    // lunge = forward hop, dmgMul/knock = damage scale + knockback impulse.
-    light: { antMs: 60, strikeMs: 120, cooldownMs: 260, omega: 0.55, lunge: 2.2, dmgMul: 1.0, knock: 2 },
-    stab: { antMs: 85, strikeMs: 110, cooldownMs: 320, omega: 0.0, lunge: 5.5, dmgMul: 1.2, knock: 3 },
-    heavy: { antMs: 230, strikeMs: 175, cooldownMs: 600, omega: 0.7, lunge: 3.2, dmgMul: 1.85, knock: 9 },
+    // lunge = forward hop, base = deterministic strike damage, knock = knockback impulse,
+    // hitstop = freeze-frames on a clean hit (the "crunch"). dmgMul scales the base.
+    light: { antMs: 70, strikeMs: 120, cooldownMs: 300, omega: 0.55, lunge: 2.6, base: 9, dmgMul: 1.0, knock: 5, hitstop: 3 },
+    stab: { antMs: 95, strikeMs: 110, cooldownMs: 360, omega: 0.0, lunge: 6.0, base: 13, dmgMul: 1.0, knock: 7, hitstop: 4 },
+    heavy: { antMs: 250, strikeMs: 175, cooldownMs: 640, omega: 0.7, lunge: 4.0, base: 22, dmgMul: 1.0, knock: 15, hitstop: 8 },
     // Unarmed fallback (when disarmed or the weapon arm is broken): punch + kick.
-    punch: { antMs: 50, strikeMs: 90, cooldownMs: 230, omega: 0.62, lunge: 2.4, dmgMul: 0.9, knock: 3 },
-    kick: { antMs: 80, strikeMs: 110, cooldownMs: 340, omega: 0.72, lunge: 3.4, dmgMul: 1.15, knock: 6 },
+    punch: { antMs: 56, strikeMs: 90, cooldownMs: 250, omega: 0.62, lunge: 2.6, base: 7, dmgMul: 1.0, knock: 5, hitstop: 3 },
+    kick: { antMs: 90, strikeMs: 110, cooldownMs: 370, omega: 0.72, lunge: 3.6, base: 11, dmgMul: 1.0, knock: 9, hitstop: 4 },
   },
 
   // Joint integrity (HP). 0 => the joint snaps and the limb (+ any held weapon) detaches.

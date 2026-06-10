@@ -2,7 +2,7 @@
 
 export type SoundName =
   | 'hit' | 'swing' | 'heavy' | 'jump' | 'dodge' | 'boom'
-  | 'parry' | 'dig' | 'ko' | 'ui' | 'zap' | 'spawn' | 'block';
+  | 'parry' | 'dig' | 'ko' | 'ui' | 'zap' | 'spawn' | 'block' | 'land';
 
 export class Audio {
   muted = false;
@@ -77,6 +77,7 @@ export class Audio {
       case 'boom': this.noise(now, 0.35, 900, 0.6 * v); this.tone(now, 90, 28, 0.4, 0.6 * v, 'sawtooth'); break;
       case 'parry': this.tone(now, 1300, 1900, 0.08, 0.3 * v, 'square'); this.tone(now + 0.02, 2200, 2600, 0.1, 0.18 * v, 'sine'); break;
       case 'block': this.noise(now, 0.05, 3000, 0.25 * v, 'bandpass'); break;
+      case 'land': this.noise(now, 0.09, 380, 0.32 * v); this.tone(now, 120, 50, 0.1, 0.22 * v, 'sine'); break;
       case 'dig': this.noise(now, 0.06, 700, 0.3 * v); break;
       case 'zap': this.tone(now, 2000, 1400, 0.12, 0.2 * v, 'square'); this.noise(now, 0.08, 3500, 0.2 * v, 'bandpass'); break;
       case 'spawn': this.tone(now, 160, 70, 0.25, 0.25 * v, 'sawtooth'); break;

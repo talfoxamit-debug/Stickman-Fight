@@ -23,7 +23,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.27 · Minecraft-style crafting: tools, weapons, armor, potions, blocks';
+const VERSION = 'v0.28 · combat feel pass';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -371,6 +371,10 @@ export class Renderer {
     bar(22, hf, hf > 0.5 ? '#7cff5a' : hf > 0.25 ? '#ffcf4d' : '#ff5a5a');
     bar(38, world.mana / world.maxMana, '#39d6ff');
     bar(54, world.char.xp / (60 + world.char.level * 45), '#ffcf4d');
+    // Thin stamina bar under the XP bar (flashes amber when winded).
+    ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fillRect(20, 68, 200, 4);
+    ctx.fillStyle = p.winded ? '#ff9a3c' : '#9be8ff';
+    ctx.fillRect(20, 68, 200 * Math.max(0, Math.min(1, p.stamina / p.maxStamina)), 4);
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'left';
     ctx.font = '11px ui-monospace, monospace';
@@ -421,9 +425,11 @@ export class Renderer {
     }
 
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.font = '12px ui-monospace, monospace';
-    ctx.fillText('A/D move · W jump · LMB attack/mine · 1-4 skills · E craft · K skills · hold Q build (R cycle) · H/J potion · B bomb · Z evo · M menu', W / 2, H - 14);
+    ctx.fillStyle = 'rgba(255,210,120,0.85)';
+    ctx.fillText('FIGHT: tap LMB = light combo · hold LMB = heavy · S/RMB block (time it = PARRY!) · double-tap A/D = dodge-roll · mind your stamina', W / 2, H - 30);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText('A/D move · W jump · LMB mine · 1-4 skills · hold Q build (R cycle) · H/J potion · B bomb · E craft · K skills · Z evo · M menu', W / 2, H - 14);
   }
 
   // ---- arena --------------------------------------------------------------
@@ -565,6 +571,22 @@ export class Renderer {
     this.head(ctx, f);
     if (f.weapon) this.weapon(ctx, f.weapon, true);
     if (f.evolution === 'burrower') this.claws(ctx, f);
+
+    // Heavy-charge telegraph: a growing ember at the hand that flares when ready.
+    const cr = f.chargeRatio();
+    if (cr > 0) {
+      const h = f.handPos();
+      const ready = cr >= 1;
+      ctx.save();
+      ctx.globalAlpha = 0.35 + cr * 0.55;
+      ctx.fillStyle = ready ? '#fff2a8' : '#ffae00';
+      ctx.shadowColor = ready ? '#ffffff' : '#ff8a00';
+      ctx.shadowBlur = 10 + cr * 26;
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, 4 + cr * 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
 
     // Block guard shimmer: a glowing shield arc in front of the fighter.
     if (f.isBlocking()) {
@@ -1013,6 +1035,13 @@ export class Renderer {
     const frac = Math.max(0, f.coreHealth / f.maxCore);
     ctx.fillStyle = frac > 0.5 ? '#7cff5a' : frac > 0.25 ? '#ffcf4d' : '#ff5a5a';
     ctx.fillRect(align === 'left' ? bx : x - bw * frac, 42, bw * frac, 12);
+
+    // Stamina bar (thin, under HP). Flashes amber when winded.
+    const sf = Math.max(0, f.stamina / f.maxStamina);
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(bx, 57, bw, 5);
+    ctx.fillStyle = f.winded ? '#ff9a3c' : '#39d6ff';
+    ctx.fillRect(align === 'left' ? bx : x - bw * sf, 57, bw * sf, 5);
 
     // Limb pips: head, 2 arms, 2 legs.
     const limbs: { p: PartName; label: string }[] = [

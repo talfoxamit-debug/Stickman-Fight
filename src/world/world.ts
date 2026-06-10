@@ -11,6 +11,7 @@ import { WorldGrid } from './worldgrid';
 import { Mat } from '../powder/materials';
 import { Bot } from '../game/bot';
 import { pickArchetype } from '../game/monsters';
+import { resolveMelee } from '../game/combat';
 import type { BodyMeta } from '../types';
 import type { FxSink } from '../game/match';
 import type { SoundName } from '../audio/audio';
@@ -64,6 +65,7 @@ export class World {
   private spawnAt = 0;
   private playerDeadAt = 0;
   private simNow = 0;
+  private hitstopSteps = 0;
   private readonly MAX_MONSTERS = 4;
 
   constructor(private fx: FxSink, public playerEvo: Evolution = 'none') {
@@ -89,6 +91,7 @@ export class World {
 
   step(now: number, input: PlayerInput): void {
     this.simNow = now;
+    if (this.hitstopSteps > 0) { this.hitstopSteps--; return; } // meaty freeze-frame on hits
     if (now > this.messageUntil) this.message = '';
     this.spawnMonsters(now);
 
@@ -104,6 +107,8 @@ export class World {
 
     this.blockWalls(this.player);
     for (const m of this.monsters) this.blockWalls(m);
+    this.hitstopSteps = Math.max(this.hitstopSteps, resolveMelee([this.player, ...this.monsters], this.fx, now));
+    this.drainLandings();
     this.mineWithSwing(now, input);
     this.worldHazards(now);
     this.handleDeaths(now);
@@ -233,6 +238,9 @@ export class World {
     if (!tf) return;
     const hostile = (oMeta.fighterId >= 0 && oMeta.fighterId !== tMeta.fighterId) || oMeta.kind === 'weapon';
     if (!hostile) return;
+    // Intentional strikes go through resolveMelee; impact damage only for incidental
+    // contact (ragdoll shoves, loose/thrown weapons).
+    if (oMeta.fighterId >= 0) { const af = this.byId.get(oMeta.fighterId); if (af && af.isStriking(this.simNow)) return; }
     const mul = oMeta.kind === 'weapon' ? C.weaponMul : C.bodyMul;
     const massFactor = clamp(other.mass, 0.6, 2.2);
     let dmg = Math.min((speed - C.impactThreshold) * C.damageScale * mul * massFactor, C.maxHitDamage);
@@ -251,6 +259,17 @@ export class World {
       }
       this.fx.blood((target.position.x + other.position.x) / 2, (target.position.y + other.position.y) / 2, applied);
       if (applied > 10) this.fx.shake(Math.min(12, applied * 0.4));
+    }
+  }
+
+  /** Dust + a little shake when someone lands hard. */
+  private drainLandings(): void {
+    for (const f of [this.player, ...this.monsters]) {
+      for (const l of f.justLanded) {
+        this.fx.impact(l.x, l.y, l.power * 0.5, '#cfd6e2');
+        if (f === this.player) this.fx.shake(Math.min(6, l.power * 0.35));
+      }
+      f.justLanded.length = 0;
     }
   }
 

@@ -28,8 +28,10 @@ interface AttackDef {
   cooldownMs: number;
   omega: number;
   lunge: number;
+  base: number;
   dmgMul: number;
   knock: number;
+  hitstop: number;
 }
 
 interface ActiveAttack {
@@ -40,8 +42,10 @@ interface ActiveAttack {
   strikeMs: number; // strike window
   omega: number; // strike spin
   lunge: number;
+  base: number; // deterministic strike damage
   dmgMul: number;
   knock: number;
+  hitstop: number;
   lunged: boolean;
   limb?: 'L' | 'R'; // which arm/leg for punch/kick
 }
@@ -92,7 +96,19 @@ export class Fighter {
   private prevJump = false;
   private prevAttack = false;
   private attack: ActiveAttack | null = null;
-  private comboStep = 0;
+  // Each begin() bumps attackId; the melee resolver hits each target at most once
+  // per swing (tracked against this id).
+  attackId = 0;
+  private hitTargets = new Set<number>();
+  private hitForAttack = -1;
+  // Stamina: spent by attacks + dodge; bottoming out winds you for a moment.
+  stamina: number = CFG.combat.stamina.max;
+  maxStamina: number = CFG.combat.stamina.max;
+  private staminaSpentAt = -9999;
+  private windedUntil = 0;
+  // Hard-landing thumps (drained by the mode for dust + shake).
+  justLanded: { x: number; y: number; power: number }[] = [];
+  comboStep = 0;
   private comboResetAt = 0;
   private attackHeldSince = -1;
   private heavyArmed = false;
@@ -127,6 +143,9 @@ export class Fighter {
   private jumpBufferedAt = -9999;
   private jumpingUp = false;
   private staggerUntil = 0;
+  private wasGrounded = false;
+  private fallVy = 0;
+  private lastNow = 0;
 
   constructor(
     private world: Matter.World,
@@ -275,12 +294,28 @@ export class Fighter {
 
   applyControl(now: number, input: PlayerInput): void {
     if (this.koed) return;
+    this.lastNow = now;
     const torso = this.parts.torso;
     const C = CFG.control;
 
+    const wasAir = !this.wasGrounded;
     if (this.grounded) {
       this.lastGroundedAt = now;
       this.airJumps = this.evolution === 'beast' ? 2 : C.doubleJump ? 1 : 0;
+      // Hard landing: thump (dust + shake handled by the mode) after a fast fall.
+      if (wasAir && this.fallVy > C.landHardVy) {
+        this.justLanded.push({ x: torso.position.x, y: torso.position.y + C.standHeight, power: Math.min(20, this.fallVy) });
+        this.soundEvents.push('land');
+      }
+      this.fallVy = 0;
+    } else {
+      this.fallVy = Math.max(this.fallVy, torso.velocity.y);
+    }
+    this.wasGrounded = this.grounded;
+
+    // Stamina regen (after a brief delay since the last spend).
+    if (now - this.staminaSpentAt > CFG.combat.stamina.regenDelayMs && this.stamina < this.maxStamina) {
+      this.stamina = Math.min(this.maxStamina, this.stamina + CFG.combat.stamina.regenPerSec * (CFG.sim.fixedDt / 1000));
     }
 
     // Staggered (just got parried): briefly stunned, no control.
@@ -316,7 +351,8 @@ export class Fighter {
     if (wantBlock && !this.blocking) this.blockStart = now;
     this.blocking = wantBlock;
 
-    // Horizontal movement.
+    // Horizontal movement — weighted: ramp toward the target speed, skid when you
+    // reverse, brake quickly when you let go. (Instant velocity = the old floaty feel.)
     if (dodging) {
       Body.setVelocity(torso, { x: this.dodgeDir * C.dodgeSpeed, y: torso.velocity.y });
     } else {
@@ -325,13 +361,16 @@ export class Fighter {
       if (this.evolution === 'burrower') speed *= CFG.evolution.burrowSpeedMul;
       if (this.evolution === 'beast') speed *= CFG.evolution.beastSpeedMul;
       if (this.blocking) speed *= C.blockMoveMul;
-      if (!this.grounded) speed *= C.airControl + 0.65;
+      if (!this.grounded) speed *= C.airControl + 0.5;
+      const cur = torso.velocity.x;
       if (dir !== 0) {
-        const desired = dir * speed;
-        const t = this.grounded ? 0.45 : 0.12;
-        Body.setVelocity(torso, { x: torso.velocity.x + (desired - torso.velocity.x) * t, y: torso.velocity.y });
-      } else if (this.grounded) {
-        Body.setVelocity(torso, { x: torso.velocity.x * 0.8, y: torso.velocity.y });
+        const target = dir * speed;
+        const reversing = cur * dir < 0;
+        const a = this.grounded ? (reversing ? C.turnDecel : C.accel) : C.airAccel;
+        Body.setVelocity(torso, { x: cur + clamp(target - cur, -a, a), y: torso.velocity.y });
+      } else {
+        const fr = this.grounded ? C.groundFriction : C.airFriction;
+        Body.setVelocity(torso, { x: Math.abs(cur) < 0.06 ? 0 : cur * fr, y: torso.velocity.y });
       }
     }
 
@@ -410,6 +449,8 @@ export class Fighter {
 
   private tryDodge(now: number, dir: number): void {
     if (this.lastTapDir === dir && now - this.lastTapAt <= CFG.control.doubleTapMs) {
+      if (!this.canSpend(CFG.combat.stamina.cost.dodge, now)) { this.lastTapDir = 0; return; }
+      this.spend(CFG.combat.stamina.cost.dodge, now);
       this.dodgeDir = dir;
       this.dodgeUntil = now + CFG.control.dodgeMs;
       this.dodgeCooldownUntil = now + CFG.control.dodgeCooldownMs;
@@ -441,6 +482,65 @@ export class Fighter {
     this.blocking = false;
   }
 
+  // ---- stamina ------------------------------------------------------------
+
+  isWinded(now: number): boolean {
+    return now < this.windedUntil;
+  }
+  /** Clock-free winded flag for the HUD (uses the last sim time the fighter saw). */
+  get winded(): boolean {
+    return this.lastNow < this.windedUntil;
+  }
+  private canSpend(cost: number, now: number): boolean {
+    return now >= this.windedUntil && this.stamina >= cost;
+  }
+  private spend(cost: number, now: number): void {
+    this.stamina = Math.max(0, this.stamina - cost);
+    this.staminaSpentAt = now;
+    if (this.stamina <= 0) this.windedUntil = now + CFG.combat.stamina.windedMs;
+  }
+  private staminaCost(motion: AttackMotion): number {
+    const s = CFG.combat.stamina.cost;
+    return motion === 'heavy' ? s.heavy : motion === 'stab' ? s.stab : motion === 'kick' ? s.kick : motion === 'punch' ? s.punch : s.slash;
+  }
+
+  // ---- strike geometry (for the deterministic melee resolver) -------------
+
+  /** Info the resolver needs about the live attack (or null when not attacking). */
+  currentAttackInfo(): { base: number; knock: number; hitstop: number; motion: AttackMotion } | null {
+    return this.attack ? { base: this.attack.base, knock: this.attack.knock, hitstop: this.attack.hitstop, motion: this.attack.motion } : null;
+  }
+
+  /** World-space segment of the active strike's business end (grip→tip / joint→fist). */
+  strikeSegment(): { ax: number; ay: number; bx: number; by: number } | null {
+    const a = this.attack;
+    if (!a) return null;
+    if (a.motion === 'punch' || a.motion === 'kick') {
+      const isArm = a.motion === 'punch';
+      const s = a.limb ?? 'L';
+      const lower = (isArm ? `lowerArm${s}` : `lowerLeg${s}`) as PartName;
+      if (this.isBroken(lower)) return null;
+      const b = this.parts[lower];
+      const h = (isArm ? CFG.body.lowerArm.h : CFG.body.lowerLeg.h) / 2;
+      const sx = Math.sin(b.angle) * h, cy = Math.cos(b.angle) * h;
+      return { ax: b.position.x + sx, ay: b.position.y - cy, bx: b.position.x - sx, by: b.position.y + cy };
+    }
+    if (this.weapon && !this.isBroken('lowerArmR')) {
+      const w = this.weapon.body, half = this.weapon.def.len / 2;
+      const sx = Math.sin(w.angle) * half, cy = Math.cos(w.angle) * half;
+      return { ax: w.position.x - sx, ay: w.position.y + cy, bx: w.position.x + sx, by: w.position.y - cy };
+    }
+    return null;
+  }
+
+  /** The melee resolver hits each target at most once per swing. */
+  registerHit(targetId: number): boolean {
+    if (this.hitForAttack !== this.attackId) { this.hitTargets.clear(); this.hitForAttack = this.attackId; }
+    if (this.hitTargets.has(targetId)) return false;
+    this.hitTargets.add(targetId);
+    return true;
+  }
+
   // ---- attacks ------------------------------------------------------------
 
   /** Tap = light combo; hold past chargeMs = heavy. Falls back to punch/kick if disarmed. */
@@ -454,16 +554,18 @@ export class Fighter {
       this.attackHeldSince = now;
       this.heavyArmed = false;
     }
-    // Heavy fires once the key has been held long enough (armed only).
+    // Heavy fires once the key has been held long enough (armed + enough stamina).
     if (a && this.canStrikeArmed() && !this.heavyArmed && !this.attack && this.attackHeldSince >= 0 &&
-        now - this.attackHeldSince >= C.chargeMs && now >= this.swingCooldownUntil) {
+        now - this.attackHeldSince >= C.chargeMs && now >= this.swingCooldownUntil &&
+        this.canSpend(this.staminaCost('heavy'), now)) {
       this.begin(now, 'heavy', this.facing, C.heavy);
       this.comboStep = 0;
       this.heavyArmed = true;
     }
-    // Light combo fires on release of a short tap.
+    // Light combo fires on release of a short tap (costs stamina; winded = no swing).
     if (!a && this.prevAttack) {
       if (!this.heavyArmed && ready && now >= this.swingCooldownUntil &&
+          this.canSpend(this.staminaCost('slash'), now) &&
           this.attackHeldSince >= 0 && now - this.attackHeldSince < C.chargeMs) {
         this.startLightCombo(now);
       }
@@ -490,10 +592,12 @@ export class Fighter {
   }
 
   private begin(now: number, motion: AttackMotion, dir: number, def: AttackDef, limb?: 'L' | 'R'): void {
+    this.spend(this.staminaCost(motion), now);
+    this.attackId++;
     this.soundEvents.push(motion === 'heavy' ? 'heavy' : 'swing');
     this.attack = {
       motion, dir, start: now, antMs: def.antMs, strikeMs: def.strikeMs, omega: def.omega,
-      lunge: def.lunge, dmgMul: def.dmgMul, knock: def.knock, lunged: false, limb,
+      lunge: def.lunge, base: def.base, dmgMul: def.dmgMul, knock: def.knock, hitstop: def.hitstop, lunged: false, limb,
     };
     this.swingCooldownUntil = now + def.cooldownMs;
   }
@@ -536,6 +640,12 @@ export class Fighter {
   isCharging(now: number): boolean {
     return this.prevAttack && !this.heavyArmed && !this.attack && this.attackHeldSince >= 0 &&
       now - this.attackHeldSince >= 110 && this.canStrikeArmed();
+  }
+
+  /** 0..1 heavy charge progress (for the on-weapon telegraph). No clock needed. */
+  chargeRatio(): number {
+    if (this.attack || !this.prevAttack || this.heavyArmed || this.attackHeldSince < 0 || !this.canStrikeArmed()) return 0;
+    return clamp((this.lastNow - this.attackHeldSince) / CFG.combat.chargeMs, 0, 1);
   }
 
   private attackEnd(): number {
@@ -658,8 +768,10 @@ export class Fighter {
       this.targets.lowerArmL = -1.25 * f;
     }
 
-    // Torso self-righting (keep upright).
-    this.driveAngle('torso', 0, c.rightGain, c.rightBlend, c.rightMaxVel);
+    // Torso: lean into the run for weight, otherwise self-right upright.
+    const vx = this.parts.torso.velocity.x;
+    const lean = clamp(vx * c.runLean, -c.maxLean, c.maxLean) * (this.grounded ? 1 : 0.4);
+    this.driveAngle('torso', lean, c.rightGain, c.rightBlend, c.rightMaxVel);
 
     // Run the active attack (returns the limbs it drives), a charged-heavy telegraph,
     // or nothing; posing below skips whatever the attack is steering.
