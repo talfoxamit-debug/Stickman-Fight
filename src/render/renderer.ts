@@ -23,7 +23,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.29 · contained arenas + hit reactions, dismemberment';
+const VERSION = 'v0.30 · juice: hit-flash, rage knockback, finishers, KO freeze';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -633,6 +633,12 @@ export class Renderer {
       ctx.strokeStyle = '#5a1014';
       ctx.shadowBlur = 0;
       ctx.globalAlpha = 0.85;
+    } else if (f.hurtFlash > 0.02) {
+      // Impact flash: the struck figure pops white for a few frames (Dead Cells juice).
+      const base = part === 'torso' ? f.color : f.accent;
+      ctx.strokeStyle = hexLerp('#ffffff', base, 1 - f.hurtFlash);
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 16;
     } else {
       // Wounded limbs tint toward blood red as their joint integrity drops.
       const base = part === 'torso' ? f.color : f.accent;
@@ -849,9 +855,9 @@ export class Renderer {
     ctx.save();
     ctx.translate(body.position.x, body.position.y);
     ctx.rotate(body.angle);
-    // Skull.
-    ctx.fillStyle = broken ? '#4b4459' : f.color;
-    ctx.shadowColor = f.color;
+    // Skull (pops white on a fresh hit).
+    ctx.fillStyle = broken ? '#4b4459' : f.hurtFlash > 0.02 ? hexLerp('#ffffff', f.color, 1 - f.hurtFlash) : f.color;
+    ctx.shadowColor = f.hurtFlash > 0.02 ? '#ffffff' : f.color;
     ctx.shadowBlur = broken ? 0 : 16;
     ctx.beginPath();
     ctx.arc(0, 0, B.headRadius, 0, Math.PI * 2);

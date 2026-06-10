@@ -103,25 +103,48 @@ export function resolveMelee(fighters: Fighter[], fx: FxSink, now: number): numb
       }
 
       const heavy = info.motion === 'heavy';
+      const finisher = info.finisher;
+      const power = heavy || finisher;
       const isLimb = hit.part !== 'torso' && hit.part !== 'head';
       const shape = atk.weapon?.def.shape;
       const bladed = shape === 'sword' || shape === 'baguette'; // edged: cleaves limbs
       const blunt = shape === 'mace' || shape === 'discoflail'; // bludgeons: more knockback
+
+      // Damage: base + edged/heavy limb-cleave + combo finisher + a punish bonus on a
+      // reeling or airborne foe (Dead Cells-style crit that rewards follow-ups/juggles).
       let dmg = info.base * atk.damageMul;
-      if (isLimb && bladed) dmg *= 1.7; // a blade bites toward a clean sever
-      if (isLimb && heavy) dmg *= 1.4; // a heavy chop can take a limb off
-      const knock = blunt ? info.knock * 1.5 : info.knock;
+      if (isLimb && bladed) dmg *= 1.7;
+      if (isLimb && heavy) dmg *= 1.4;
+      if (finisher) dmg *= 1.45;
+      const punished = tgt.isHitstunned(now) || !tgt.grounded;
+      if (punished) dmg *= 1.25;
+
+      // Knockback escalates as the victim wears down (Smash "rage"), so fights build
+      // to dramatic launches; blunt weapons + finishers + punishes hit harder still.
+      let knock = info.knock * (1 + (1 - tgt.coreHealth / tgt.maxCore) * 0.9);
+      if (blunt) knock *= 1.5;
+      if (finisher) knock *= 1.5;
+      if (punished) knock *= 1.2;
 
       const wasBroken = tgt.isBroken(hit.part);
+      const wasKoed = tgt.koed;
       const applied = tgt.damagePart(hit.part, dmg, now);
       if (applied <= 0) continue;
-      knockback(tgt, atk.torsoBody.position.x, knock, heavy);
+      knockback(tgt, atk.torsoBody.position.x, knock, power);
       tgt.takeHit(now, applied, atk.torsoBody.position.x); // victim reels (interrupts their move)
       fx.blood(hit.x, hit.y, applied);
-      fx.impact(hit.x, hit.y, heavy ? 20 : 11, bladed ? '#ffffff' : '#ffd27a');
-      fx.shake(Math.min(18, heavy ? 13 : 6));
-      fx.sound(heavy ? 'heavy' : 'hit');
-      hitstop = Math.max(hitstop, info.hitstop);
+      fx.impact(hit.x, hit.y, power ? 20 : 11, bladed ? '#ffffff' : '#ffd27a');
+      fx.shake(Math.min(18, power ? 13 : 6));
+      fx.sound(power ? 'heavy' : 'hit');
+      // Hit-stop scales with the blow (Dead Cells): bigger hits freeze longer.
+      hitstop = Math.max(hitstop, Math.min(13, info.hitstop + Math.floor(applied / 6) + (finisher ? 3 : 0)));
+
+      // The finishing blow gets a cinematic freeze + a K.O. pop.
+      if (!wasKoed && tgt.koed) {
+        hitstop = Math.max(hitstop, 15);
+        fx.shake(20);
+        fx.text?.(tgt.torsoBody.position.x, tgt.torsoBody.position.y - 56, 'K.O.!', '#ffd200');
+      }
 
       // Dismemberment: this blow severed the limb — big gout + an extra beat.
       if (isLimb && !wasBroken && tgt.isBroken(hit.part)) {

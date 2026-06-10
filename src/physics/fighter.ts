@@ -46,6 +46,7 @@ interface ActiveAttack {
   dmgMul: number;
   knock: number;
   hitstop: number;
+  finisher: boolean; // last hit of a combo: bigger damage/knock/freeze
   lunged: boolean;
   limb?: 'L' | 'R'; // which arm/leg for punch/kick
 }
@@ -145,6 +146,7 @@ export class Fighter {
   private staggerUntil = 0;
   private hitstunUntil = 0; // brief reel after being struck (interrupts your move)
   private flinchDir = 0; // recoil direction away from the last blow
+  private hurtFlashUntil = 0; // white impact-flash window (renderer)
   private wasGrounded = false;
   private fallVy = 0;
   private lastNow = 0;
@@ -295,8 +297,8 @@ export class Fighter {
   // ---- per-step control ---------------------------------------------------
 
   applyControl(now: number, input: PlayerInput): void {
-    if (this.koed) return;
     this.lastNow = now;
+    if (this.koed) return;
     const torso = this.parts.torso;
     const C = CFG.control;
 
@@ -490,11 +492,16 @@ export class Fighter {
     if (dmg <= 0) return;
     const stun = clamp(70 + dmg * 7, 70, 320);
     this.hitstunUntil = Math.max(this.hitstunUntil, now + stun);
+    this.hurtFlashUntil = now + 110;
     this.flinchDir = Math.sign(this.torsoBody.position.x - fromX) || this.facing;
     if (dmg > 6) this.attack = null; // a solid blow interrupts your attack
   }
   isHitstunned(now: number): boolean {
     return now < this.hitstunUntil;
+  }
+  /** 0..1 white impact-flash intensity (clock-free, for the renderer). */
+  get hurtFlash(): number {
+    return clamp((this.hurtFlashUntil - this.lastNow) / 110, 0, 1);
   }
 
   // ---- stamina ------------------------------------------------------------
@@ -522,8 +529,10 @@ export class Fighter {
   // ---- strike geometry (for the deterministic melee resolver) -------------
 
   /** Info the resolver needs about the live attack (or null when not attacking). */
-  currentAttackInfo(): { base: number; knock: number; hitstop: number; motion: AttackMotion } | null {
-    return this.attack ? { base: this.attack.base, knock: this.attack.knock, hitstop: this.attack.hitstop, motion: this.attack.motion } : null;
+  currentAttackInfo(): { base: number; knock: number; hitstop: number; motion: AttackMotion; finisher: boolean } | null {
+    return this.attack
+      ? { base: this.attack.base, knock: this.attack.knock, hitstop: this.attack.hitstop, motion: this.attack.motion, finisher: this.attack.finisher }
+      : null;
   }
 
   /** World-space segment of the active strike's business end (grip→tip / joint→fist). */
@@ -606,13 +615,13 @@ export class Fighter {
     return null;
   }
 
-  private begin(now: number, motion: AttackMotion, dir: number, def: AttackDef, limb?: 'L' | 'R'): void {
+  private begin(now: number, motion: AttackMotion, dir: number, def: AttackDef, limb?: 'L' | 'R', finisher = false): void {
     this.spend(this.staminaCost(motion), now);
     this.attackId++;
     this.soundEvents.push(motion === 'heavy' ? 'heavy' : 'swing');
     this.attack = {
       motion, dir, start: now, antMs: def.antMs, strikeMs: def.strikeMs, omega: def.omega,
-      lunge: def.lunge, base: def.base, dmgMul: def.dmgMul, knock: def.knock, hitstop: def.hitstop, lunged: false, limb,
+      lunge: def.lunge, base: def.base, dmgMul: def.dmgMul, knock: def.knock, hitstop: def.hitstop, finisher, lunged: false, limb,
     };
     this.swingCooldownUntil = now + def.cooldownMs;
   }
@@ -622,12 +631,12 @@ export class Fighter {
     const f = this.facing;
     const step = this.comboStep;
     if (this.canStrikeArmed()) {
-      if (step === 2) this.begin(now, 'stab', f, C.stab);
+      if (step === 2) this.begin(now, 'stab', f, C.stab, undefined, true); // combo finisher
       else this.begin(now, 'slash', step === 0 ? f : -f, C.light); // forehand, then backhand
     } else {
       const arm = this.intactArm();
       const leg = this.intactLeg();
-      if (step === 2 && leg) this.begin(now, 'kick', f, C.kick, leg);
+      if (step === 2 && leg) this.begin(now, 'kick', f, C.kick, leg, true); // finisher
       else if (arm) this.begin(now, 'punch', step === 0 ? f : -f, C.punch, arm);
       else if (leg) this.begin(now, 'kick', f, C.kick, leg);
       else return;
