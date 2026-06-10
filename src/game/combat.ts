@@ -29,34 +29,38 @@ const PART_RADIUS: Record<PartName, number> = {
 
 interface Hit { part: PartName; x: number; y: number }
 
-/** Find the first body of `tgt` that the strike segment touches (sampled along it). */
+/** The body of `tgt` the strike segment passes closest to — so the blade bites
+ * whatever it actually catches (a side-slash clips the near arm = a real disarm). */
 function sweepHit(seg: { ax: number; ay: number; bx: number; by: number }, tgt: Fighter): Hit | null {
-  const SAMPLES = 5;
+  const SAMPLES = 6;
+  let best: Hit | null = null;
+  let bestD2 = Infinity;
   for (const part of HURT_PARTS) {
     if (part !== 'torso' && part !== 'head' && tgt.isBroken(part)) continue;
     const b = tgt.parts[part];
     if (!b) continue;
     const r = PART_RADIUS[part] + C.meleeReach;
     const r2 = r * r;
+    // Keep body blows primary: a limb must be clearly closer than the torso to win
+    // (so you mostly hit the body, but catch a reaching limb for a disarm).
+    const bias = part === 'torso' || part === 'head' ? 0 : 240;
     for (let i = 0; i <= SAMPLES; i++) {
       const t = i / SAMPLES;
       const x = seg.ax + (seg.bx - seg.ax) * t;
       const y = seg.ay + (seg.by - seg.ay) * t;
-      if ((x - b.position.x) ** 2 + (y - b.position.y) ** 2 <= r2) {
-        return { part, x: b.position.x, y: b.position.y };
-      }
+      const d2 = (x - b.position.x) ** 2 + (y - b.position.y) ** 2;
+      if (d2 <= r2 && d2 + bias < bestD2) { bestD2 = d2 + bias; best = { part, x: b.position.x, y: b.position.y }; }
     }
   }
-  return null;
+  return best;
 }
 
-function knockback(tgt: Fighter, fromX: number, fromY: number, knock: number): void {
+function knockback(tgt: Fighter, fromX: number, knock: number, heavy: boolean): void {
   if (knock <= 0) return;
   const c = tgt.torsoBody.position;
-  let nx = c.x - fromX, ny = c.y - fromY;
-  const d = Math.hypot(nx, ny) || 1;
-  nx /= d; ny = ny / d - 0.5; // bias up so hits pop the target off the ground a little
-  for (const bb of tgt.bodies()) Body.setVelocity(bb, { x: bb.velocity.x + nx * knock, y: bb.velocity.y + ny * knock });
+  const hx = Math.sign(c.x - fromX) || 1; // away from attacker = the swing direction
+  const up = heavy ? 0.85 : 0.4; // heavies launch up & away; lights shove sideways
+  for (const bb of tgt.bodies()) Body.setVelocity(bb, { x: bb.velocity.x + hx * knock, y: bb.velocity.y - up * knock });
 }
 
 /**
@@ -83,7 +87,7 @@ export function resolveMelee(fighters: Fighter[], fx: FxSink, now: number): numb
         if (tgt.blockAge(now) <= C.parryWindowMs) {
           atk.stagger(now, C.parryStunMs);
           const px = tgt.torsoBody.position.x, py = tgt.torsoBody.position.y;
-          knockback(atk, px, py, 8);
+          knockback(atk, px, 8, false);
           fx.impact(px, py - 16, 18, '#ffffff');
           fx.text?.(px, py - 64, 'PARRY!', '#ffffff');
           fx.sound('parry'); fx.shake(11);
@@ -98,16 +102,36 @@ export function resolveMelee(fighters: Fighter[], fx: FxSink, now: number): numb
         continue;
       }
 
-      const applied = tgt.damagePart(hit.part, info.base * atk.damageMul, now);
-      if (applied <= 0) continue;
-      knockback(tgt, atk.torsoBody.position.x, atk.torsoBody.position.y, info.knock);
       const heavy = info.motion === 'heavy';
+      const isLimb = hit.part !== 'torso' && hit.part !== 'head';
+      const shape = atk.weapon?.def.shape;
+      const bladed = shape === 'sword' || shape === 'baguette'; // edged: cleaves limbs
+      const blunt = shape === 'mace' || shape === 'discoflail'; // bludgeons: more knockback
+      let dmg = info.base * atk.damageMul;
+      if (isLimb && bladed) dmg *= 1.7; // a blade bites toward a clean sever
+      if (isLimb && heavy) dmg *= 1.4; // a heavy chop can take a limb off
+      const knock = blunt ? info.knock * 1.5 : info.knock;
+
+      const wasBroken = tgt.isBroken(hit.part);
+      const applied = tgt.damagePart(hit.part, dmg, now);
+      if (applied <= 0) continue;
+      knockback(tgt, atk.torsoBody.position.x, knock, heavy);
+      tgt.takeHit(now, applied, atk.torsoBody.position.x); // victim reels (interrupts their move)
       fx.blood(hit.x, hit.y, applied);
-      fx.impact(hit.x, hit.y, heavy ? 22 : 12, heavy ? '#ffd27a' : '#fff2a8');
-      fx.shake(Math.min(18, heavy ? 14 : 7));
-      if (heavy) fx.text?.(hit.x, hit.y - 50, 'CRUSH!', '#ffd27a');
+      fx.impact(hit.x, hit.y, heavy ? 20 : 11, bladed ? '#ffffff' : '#ffd27a');
+      fx.shake(Math.min(18, heavy ? 13 : 6));
       fx.sound(heavy ? 'heavy' : 'hit');
       hitstop = Math.max(hitstop, info.hitstop);
+
+      // Dismemberment: this blow severed the limb — big gout + an extra beat.
+      if (isLimb && !wasBroken && tgt.isBroken(hit.part)) {
+        fx.blood(hit.x, hit.y, 34);
+        fx.impact(hit.x, hit.y, 26, '#ff3b4a');
+        fx.shake(13);
+        fx.text?.(hit.x, hit.y - 48, 'SEVERED!', '#ff5a5a');
+        fx.sound('heavy');
+        hitstop = Math.max(hitstop, 8);
+      }
     }
   }
   return hitstop;

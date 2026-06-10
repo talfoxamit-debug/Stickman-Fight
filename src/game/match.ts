@@ -88,30 +88,44 @@ export class Match {
 
   private buildArena(): void {
     const W = CFG.view.width;
+    const H = CFG.view.height;
     const floorTop = CFG.arena.floorY;
     const inset = CFG.arena.wallInset;
-    // Central platform with open sides => fighters can be knocked off (ring-out).
+    // PvE modes are fully contained (no death pit — you can't fall out of the world);
+    // only 2-player versus keeps the open-sided ring-out platform.
+    const contained = this.mode !== 'versus';
+
+    const floorW = contained ? W : W - inset * 2;
     const platform = Bodies.rectangle(
       W / 2,
       floorTop + CFG.arena.floorThickness / 2,
-      W - inset * 2,
+      floorW,
       CFG.arena.floorThickness,
       { isStatic: true, friction: 0.9, label: 'ground' },
     );
     (platform as unknown as { meta: BodyMeta }).meta = { fighterId: -1, kind: 'ground' };
     Composite.add(this.world, platform);
 
-    // Low edge railings: stop trivial slide-offs, but a strong launch can still
-    // send a fighter up and over into the pit (ring-out stays a real finish).
-    const railH = CFG.arena.railHeight;
-    for (const rx of [inset, W - inset]) {
-      const rail = Bodies.rectangle(rx, floorTop - railH / 2 + 6, 14, railH, {
-        isStatic: true,
-        friction: 0.4,
-        label: 'rail',
-      });
-      (rail as unknown as { meta: BodyMeta }).meta = { fighterId: -1, kind: 'wall' };
-      Composite.add(this.world, rail);
+    if (contained) {
+      // Tall invisible side walls keep fighters in the arena (no ring-out in PvE).
+      for (const wx of [-10, W + 10]) {
+        const wall = Bodies.rectangle(wx, H / 2, 28, H * 3, { isStatic: true, friction: 0.2, label: 'wall' });
+        (wall as unknown as { meta: BodyMeta }).meta = { fighterId: -1, kind: 'wall' };
+        Composite.add(this.world, wall);
+      }
+    } else {
+      // Low edge railings: stop trivial slide-offs, but a strong launch can still
+      // send a fighter up and over into the pit (ring-out stays a real finish).
+      const railH = CFG.arena.railHeight;
+      for (const rx of [inset, W - inset]) {
+        const rail = Bodies.rectangle(rx, floorTop - railH / 2 + 6, 14, railH, {
+          isStatic: true,
+          friction: 0.4,
+          label: 'rail',
+        });
+        (rail as unknown as { meta: BodyMeta }).meta = { fighterId: -1, kind: 'wall' };
+        Composite.add(this.world, rail);
+      }
     }
 
     // Floating platforms for verticality.
@@ -481,6 +495,7 @@ export class Match {
   }
 
   private checkRingOut(): void {
+    if (this.mode !== 'versus') return; // PvE arenas are contained — no ring-out deaths
     for (const f of this.fighters) {
       if (!f.koed && f.torsoBody.position.y > CFG.arena.ringOutY) f.koed = true;
     }

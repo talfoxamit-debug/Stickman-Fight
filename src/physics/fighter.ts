@@ -143,6 +143,8 @@ export class Fighter {
   private jumpBufferedAt = -9999;
   private jumpingUp = false;
   private staggerUntil = 0;
+  private hitstunUntil = 0; // brief reel after being struck (interrupts your move)
+  private flinchDir = 0; // recoil direction away from the last blow
   private wasGrounded = false;
   private fallVy = 0;
   private lastNow = 0;
@@ -327,6 +329,7 @@ export class Fighter {
     }
 
     const legsLost = this.legsLost();
+    const reeling = now < this.hitstunUntil; // mid-flinch: can't act, only recoil
 
     // Aim: mouse cursor sets facing for P1; otherwise Match faces the opponent.
     this.manualFacing = false;
@@ -338,7 +341,7 @@ export class Fighter {
     // Dodge roll: double-tap a direction.
     const leftEdge = input.left && !this.prevLeft;
     const rightEdge = input.right && !this.prevRight;
-    if (now >= this.dodgeCooldownUntil && legsLost < 2) {
+    if (now >= this.dodgeCooldownUntil && legsLost < 2 && !reeling) {
       if (leftEdge) this.tryDodge(now, -1);
       if (rightEdge) this.tryDodge(now, 1);
     }
@@ -346,8 +349,8 @@ export class Fighter {
     this.prevRight = input.right;
     const dodging = now < this.dodgeUntil;
 
-    // Block / guard (grounded, not dodging or mid-attack).
-    const wantBlock = input.block && this.grounded && !dodging && this.attack === null && legsLost < 2;
+    // Block / guard (grounded, not dodging, reeling, or mid-attack).
+    const wantBlock = input.block && this.grounded && !dodging && !reeling && this.attack === null && legsLost < 2;
     if (wantBlock && !this.blocking) this.blockStart = now;
     this.blocking = wantBlock;
 
@@ -356,7 +359,7 @@ export class Fighter {
     if (dodging) {
       Body.setVelocity(torso, { x: this.dodgeDir * C.dodgeSpeed, y: torso.velocity.y });
     } else {
-      const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      const dir = reeling ? 0 : (input.right ? 1 : 0) - (input.left ? 1 : 0);
       let speed = C.runSpeed * this.speedMul * (legsLost >= 2 ? C.crippleSpeedMul : 1);
       if (this.evolution === 'burrower') speed *= CFG.evolution.burrowSpeedMul;
       if (this.evolution === 'beast') speed *= CFG.evolution.beastSpeedMul;
@@ -383,7 +386,7 @@ export class Fighter {
     if (input.jump && !this.prevJump) this.jumpBufferedAt = now;
     const buffered = now - this.jumpBufferedAt <= C.jumpBufferMs;
     const coyote = now - this.lastGroundedAt <= C.coyoteMs;
-    if (buffered && legsLost < 2 && !dodging) {
+    if (buffered && legsLost < 2 && !dodging && !reeling) {
       if (this.grounded || coyote) {
         this.doJump(C.jumpSpeed);
         this.jumpBufferedAt = -9999;
@@ -429,8 +432,8 @@ export class Fighter {
       }
     }
 
-    // Attacks are locked out while blocking or dodging.
-    if (!this.blocking && !dodging) this.handleAttackInput(now, input);
+    // Attacks are locked out while blocking, dodging, or reeling from a hit.
+    if (!this.blocking && !dodging && !reeling) this.handleAttackInput(now, input);
     else this.prevAttack = input.attack;
 
     this.poseAndDrive(now);
@@ -480,6 +483,18 @@ export class Fighter {
     this.staggerUntil = Math.max(this.staggerUntil, now + ms);
     this.attack = null;
     this.blocking = false;
+  }
+
+  /** React to being struck: a brief reel (recoil away + your own swing interrupted). */
+  takeHit(now: number, dmg: number, fromX: number): void {
+    if (dmg <= 0) return;
+    const stun = clamp(70 + dmg * 7, 70, 320);
+    this.hitstunUntil = Math.max(this.hitstunUntil, now + stun);
+    this.flinchDir = Math.sign(this.torsoBody.position.x - fromX) || this.facing;
+    if (dmg > 6) this.attack = null; // a solid blow interrupts your attack
+  }
+  isHitstunned(now: number): boolean {
+    return now < this.hitstunUntil;
   }
 
   // ---- stamina ------------------------------------------------------------
@@ -768,10 +783,15 @@ export class Fighter {
       this.targets.lowerArmL = -1.25 * f;
     }
 
-    // Torso: lean into the run for weight, otherwise self-right upright.
+    // Torso: recoil when reeling from a hit, lean into the run for weight, else upright.
+    const reeling = now < this.hitstunUntil;
     const vx = this.parts.torso.velocity.x;
-    const lean = clamp(vx * c.runLean, -c.maxLean, c.maxLean) * (this.grounded ? 1 : 0.4);
-    this.driveAngle('torso', lean, c.rightGain, c.rightBlend, c.rightMaxVel);
+    if (reeling) {
+      this.driveAngle('torso', this.flinchDir * 0.42, c.rightGain * 1.8, c.rightBlend, c.rightMaxVel * 2.2);
+    } else {
+      const lean = clamp(vx * c.runLean, -c.maxLean, c.maxLean) * (this.grounded ? 1 : 0.4);
+      this.driveAngle('torso', lean, c.rightGain, c.rightBlend, c.rightMaxVel);
+    }
 
     // Run the active attack (returns the limbs it drives), a charged-heavy telegraph,
     // or nothing; posing below skips whatever the attack is steering.

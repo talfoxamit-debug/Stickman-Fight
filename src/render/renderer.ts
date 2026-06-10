@@ -1,7 +1,7 @@
 import { CFG } from '../config';
 import type { PartName } from '../types';
 import type { Fighter } from '../physics/fighter';
-import type { Match } from '../game/match';
+import type { Match, GameMode } from '../game/match';
 import type { Weapon } from '../physics/weapon';
 import type { Fx } from './fx';
 import { PowderRenderer } from '../powder/render';
@@ -23,7 +23,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.28 · combat feel pass';
+const VERSION = 'v0.29 · contained arenas + hit reactions, dismemberment';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -63,7 +63,7 @@ export class Renderer {
 
     ctx.save();
     ctx.translate(fx.shakeX, fx.shakeY);
-    this.platform(ctx);
+    this.platform(ctx, match.mode);
     this.floatingPlatforms(ctx);
     if (!this.powder) this.powder = new PowderRenderer(match.grid);
     this.powder.draw(ctx, match.grid, CFG.view.width, CFG.view.height);
@@ -461,11 +461,12 @@ export class Renderer {
     ctx.fillRect(0, CFG.arena.floorY - 120, W, 120);
   }
 
-  private platform(ctx: CanvasRenderingContext2D): void {
+  private platform(ctx: CanvasRenderingContext2D, mode: GameMode): void {
+    const contained = mode !== 'versus'; // PvE: full-width floor + side walls, no pit
     const inset = CFG.arena.wallInset;
-    const x = inset;
+    const x = contained ? 0 : inset;
     const y = CFG.arena.floorY;
-    const w = W - inset * 2;
+    const w = contained ? W : W - inset * 2;
     const h = CFG.arena.floorThickness;
     ctx.fillStyle = '#160a22';
     ctx.fillRect(x, y, w, h);
@@ -489,13 +490,17 @@ export class Renderer {
       ctx.lineTo(i + 22, y + 16);
       ctx.stroke();
     }
-    // Neon edge railings.
+    // Neon walls: full-height side walls when contained, else low ring-out railings.
     ctx.save();
     ctx.shadowColor = '#ff37c8';
     ctx.shadowBlur = 18;
     ctx.fillStyle = '#ff37c8';
-    const rh = CFG.arena.railHeight;
-    for (const rx of [inset, W - inset]) ctx.fillRect(rx - 7, y - rh + 6, 14, rh);
+    if (contained) {
+      for (const rx of [0, W]) ctx.fillRect(rx === 0 ? 0 : W - 8, 0, 8, y + h);
+    } else {
+      const rh = CFG.arena.railHeight;
+      for (const rx of [inset, W - inset]) ctx.fillRect(rx - 7, y - rh + 6, 14, rh);
+    }
     ctx.restore();
   }
 
