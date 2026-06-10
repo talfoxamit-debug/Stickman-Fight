@@ -15,6 +15,7 @@ import type { BodyMeta } from '../types';
 import type { FxSink } from '../game/match';
 import type { SoundName } from '../audio/audio';
 import { type CharState, xpForCharLevel, passives, canLearn, SKILLS, SKILL_BY_ID } from '../game/skills';
+import { type Recipe, type CraftCategory, RECIPE_BY_ID, BLOCK_MAT, hasIngredients } from '../game/crafting';
 
 const { Engine, Composite, Body, Events } = Matter;
 const C = CFG.combat;
@@ -35,7 +36,20 @@ export class World {
   loot = 0;
   message = '';
   crafting = false;
-  upgrades = { hp: 0, dmg: 0, spd: 0, wpn: 0 };
+  // Minecraft-style crafting: category being viewed, permanent gear owned, and
+  // stackable consumable/block items the player holds.
+  craftCategory: CraftCategory = 'tool';
+  owned = new Set<string>();
+  items: Record<string, number> = {};
+  selectedBlock: string | null = null;
+  digTier = 0;
+  private gearHp = 0;
+  private gearDef = 0;
+  private gearSpeed = 0;
+  private weaponDmgBonus = 0;
+  private equippedWeaponIndex = 0;
+  private placeCdUntil = 0;
+  private bombCdUntil = 0;
   // RPG character: level, XP, skill tree, mana.
   char: CharState = { level: 1, xp: 0, skillPoints: 1, learned: {} };
   mana = 30;
@@ -130,11 +144,12 @@ export class World {
   private mineWithSwing(now: number, input: PlayerInput): void {
     if (this.player.koed || !input.attack || now < this.digCdUntil) return;
     if (!this.player.isStriking(now)) return;
-    this.digCdUntil = now + 130;
+    this.digCdUntil = now + Math.max(70, 130 - this.digTier * 18); // pickaxes mine faster
     const w = this.player.weapon;
     const px = w ? w.body.position.x : this.player.handPos().x;
     const py = w ? w.body.position.y : this.player.handPos().y;
-    const mined = this.grid.digPx(px, py, this.grid.cell * (this.player.evolution === 'burrower' ? 2.2 : 1.2));
+    const radiusMul = 1.2 + this.digTier * 0.55 + (this.player.evolution === 'burrower' ? 1.0 : 0);
+    const mined = this.grid.digPx(px, py, this.grid.cell * radiusMul);
     for (const [m, n] of mined) this.inventory.set(m, (this.inventory.get(m) ?? 0) + n);
     if (mined.size > 0) this.fx.sound('dig');
   }
@@ -191,6 +206,7 @@ export class World {
     this.byId.delete(0);
     this.player = this.makeFighter(0, this.grid.spawnX, this.grid.spawnY, 1, '#22e3ff', '#aef9ff', 'YOU', 0, CFG.health.core, evo);
     this.applyPlayerStats();
+    if (this.equippedWeaponIndex !== 0) this.player.equipWeapon(this.equippedWeaponIndex);
     this.playerDeadAt = 0;
   }
 
@@ -270,54 +286,108 @@ export class World {
     }
   }
 
-  // ---- crafting / progression ---------------------------------------------
+  // ---- crafting (Minecraft-style) -----------------------------------------
 
-  craftDefs: { name: string; desc: string }[] = [
-    { name: 'Reinforce', desc: '+30 max health' },
-    { name: 'Sharpen', desc: '+20% damage' },
-    { name: 'Swift Boots', desc: '+12% move speed' },
-    { name: 'Forge Blade', desc: '+15% damage' },
-  ];
-
-  craftCost(i: number): { loot: number; mats: [Mat, number][] } {
-    const u = this.upgrades;
-    if (i === 0) return { loot: 18 + u.hp * 12, mats: [[Mat.Stone, 4]] };
-    if (i === 1) return { loot: 16 + u.dmg * 12, mats: [[Mat.Ore, 2]] };
-    if (i === 2) return { loot: 14 + u.spd * 12, mats: [[Mat.Wood, 4]] };
-    return { loot: 12 + u.wpn * 15, mats: [[Mat.Wood, 6], [Mat.Stone, 6], [Mat.Ore, 3]] };
+  /** Can the recipe be crafted right now (have ingredients, not already owned)? */
+  canCraftRecipe(r: Recipe): boolean {
+    if (r.permanent && this.owned.has(r.id)) return false;
+    return hasIngredients(r, this.inventory);
   }
 
-  canCraft(i: number): boolean {
-    const c = this.craftCost(i);
-    if (this.loot < c.loot) return false;
-    for (const [m, n] of c.mats) if ((this.inventory.get(m) ?? 0) < n) return false;
-    return true;
-  }
-
-  craft(i: number): boolean {
-    if (!this.canCraft(i)) { this.fx.sound('ui'); return false; }
-    const c = this.craftCost(i);
-    this.loot -= c.loot;
-    for (const [m, n] of c.mats) this.inventory.set(m, (this.inventory.get(m) ?? 0) - n);
-    if (i === 0) this.upgrades.hp++;
-    else if (i === 1) this.upgrades.dmg++;
-    else if (i === 2) this.upgrades.spd++;
-    else this.upgrades.wpn++;
-    this.applyPlayerStats();
+  craftRecipe(id: string): boolean {
+    const r = RECIPE_BY_ID[id];
+    if (!r || !this.canCraftRecipe(r)) { this.fx.sound('ui'); return false; }
+    for (const [m, n] of r.ingredients) this.inventory.set(m, (this.inventory.get(m) ?? 0) - n);
+    this.applyRecipe(r);
     this.fx.sound('parry');
+    this.flash(`CRAFTED ${r.name}!`, this.simNow);
     return true;
   }
 
-  /** Recompute player stats from Forge upgrades + skill-tree passives. */
+  private applyRecipe(r: Recipe): void {
+    if (r.category === 'weapon') {
+      this.equippedWeaponIndex = r.weaponIndex ?? 0;
+      this.player.equipWeapon(this.equippedWeaponIndex);
+      this.weaponDmgBonus = r.dmgBonus ?? 0;
+    } else if (r.category === 'tool') {
+      this.owned.add(r.id);
+      this.digTier = Math.max(this.digTier, r.digTier ?? 0);
+    } else if (r.category === 'armor') {
+      this.owned.add(r.id);
+      this.gearHp += r.hpBonus ?? 0;
+      this.gearDef = Math.min(0.6, this.gearDef + (r.defBonus ?? 0));
+      this.gearSpeed += r.speedBonus ?? 0;
+    } else {
+      const k = r.give!;
+      this.items[k] = (this.items[k] ?? 0) + (r.stack ?? 1);
+      if (r.category === 'block' && !this.selectedBlock) this.selectedBlock = k;
+    }
+    this.applyPlayerStats();
+  }
+
+  /** Use a crafted block: place it into empty space at the cursor (hold Q). */
+  placeBlockAt(sx: number, sy: number, now: number): void {
+    const k = this.selectedBlock;
+    if (!k || (this.items[k] ?? 0) <= 0 || now < this.placeCdUntil) return;
+    const w = this.screenToWorld(sx, sy);
+    const pt = this.player.torsoBody.position;
+    if (Math.hypot(w.x - pt.x, w.y - pt.y) < this.grid.cell * 0.9) return; // not on yourself
+    if (this.grid.placePx(w.x, w.y, BLOCK_MAT[k])) {
+      this.items[k] = (this.items[k] ?? 0) - 1;
+      this.placeCdUntil = now + 80;
+      this.fx.sound('dig', 0.5);
+    }
+  }
+
+  cycleBlock(): void {
+    const have = Object.keys(BLOCK_MAT).filter((k) => (this.items[k] ?? 0) > 0);
+    if (have.length === 0) { this.selectedBlock = null; return; }
+    const i = this.selectedBlock ? have.indexOf(this.selectedBlock) : -1;
+    this.selectedBlock = have[(i + 1) % have.length];
+    this.fx.sound('ui', 0.5);
+  }
+
+  drink(kind: 'hp' | 'mp', now: number): void {
+    if ((this.items[kind] ?? 0) <= 0) { this.fx.sound('ui'); return; }
+    this.items[kind] = (this.items[kind] ?? 0) - 1;
+    const t = this.player.torsoBody.position;
+    if (kind === 'hp') { this.player.coreHealth = Math.min(this.player.maxCore, this.player.coreHealth + 60); this.flash('+60 HP', now); }
+    else { this.mana = Math.min(this.maxMana, this.mana + 40); this.flash('+40 mana', now); }
+    this.fx.confetti(t.x, t.y);
+    this.fx.sound('parry');
+  }
+
+  throwBomb(sx: number, sy: number, now: number): void {
+    if ((this.items.bomb ?? 0) <= 0 || now < this.bombCdUntil) { if ((this.items.bomb ?? 0) <= 0) this.fx.sound('ui'); return; }
+    this.items.bomb = (this.items.bomb ?? 0) - 1;
+    this.bombCdUntil = now + 500;
+    const w = this.screenToWorld(sx, sy);
+    const mined = this.grid.digPx(w.x, w.y, this.grid.cell * 3.2); // blow a crater (and keep the rubble)
+    for (const [m, n] of mined) this.inventory.set(m, (this.inventory.get(m) ?? 0) + n);
+    this.aoeDamage(w.x, w.y, 160, 60, 18, 'heat');
+    this.fx.impact(w.x, w.y, 60, '#ff7a18');
+    this.fx.shake(18);
+    this.fx.sound('boom');
+  }
+
+  /** Convert internal-canvas (screen) coords to world coords through the camera. */
+  screenToWorld(sx: number, sy: number): { x: number; y: number } {
+    return {
+      x: (sx - CFG.view.width / 2) / this.zoom + this.camera.x,
+      y: (sy - CFG.view.height / 2) / this.zoom + this.camera.y,
+    };
+  }
+
+  /** Recompute player stats from crafted gear + skill-tree passives. */
   private applyPlayerStats(): void {
-    const u = this.upgrades;
     const p = passives(this.char.learned);
-    const newMax = CFG.health.core + u.hp * 30 + p.hp;
+    const newMax = CFG.health.core + this.gearHp + p.hp;
     const ratio = this.player.maxCore > 0 ? this.player.coreHealth / this.player.maxCore : 1;
     this.player.maxCore = newMax;
     this.player.coreHealth = Math.min(newMax, Math.max(this.player.coreHealth, newMax * ratio));
-    this.player.damageMul = 1 + u.dmg * 0.2 + u.wpn * 0.15 + p.dmg;
-    this.player.speedMul = 1 + u.spd * 0.12 + p.speed;
+    this.player.damageMul = 1 + this.weaponDmgBonus + p.dmg;
+    this.player.speedMul = 1 + this.gearSpeed + p.speed;
+    this.player.defenseMul = 1 - this.gearDef;
     this.maxMana = 30 + this.char.level * 2 + p.mana;
     this.mana = Math.min(this.mana, this.maxMana);
   }

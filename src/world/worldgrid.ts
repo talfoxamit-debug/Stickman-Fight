@@ -154,6 +154,16 @@ export class WorldGrid {
     return this.heightPx;
   }
 
+  /** Place a block at the pixel, but only into empty space. Returns true if placed. */
+  placePx(px: number, py: number, mat: Mat): boolean {
+    const x = (px / this.cell) | 0, y = (py / this.cell) | 0;
+    if (x < 0 || y < 0 || x >= this.cols || y >= this.rows) return false;
+    const i = this.idx(x, y);
+    if (this.tiles[i] !== Mat.Empty) return false;
+    this.tiles[i] = mat;
+    return true;
+  }
+
   digPx(px: number, py: number, radiusPx: number): Map<Mat, number> {
     const out = new Map<Mat, number>();
     const cx = px / this.cell, cy = py / this.cell, rc = radiusPx / this.cell;

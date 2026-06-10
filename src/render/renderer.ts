@@ -10,6 +10,7 @@ import { xpForLevel, upgradeCost, UPGRADES } from '../game/save';
 import type { World } from '../world/world';
 import { PALETTE, MAT_COUNT, MATERIALS, Mat } from '../powder/materials';
 import { SKILLS, BRANCHES, skillNodePos, SKILL_BY_ID, canLearn } from '../game/skills';
+import { CRAFT_CATEGORIES, recipesIn, craftTabRect, craftRowRect } from '../game/crafting';
 
 const MAT_COLORS: string[] = (() => {
   const a: string[] = [];
@@ -22,7 +23,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.26 · MapleStory/MU skill tree + levels + active skills';
+const VERSION = 'v0.27 · Minecraft-style crafting: tools, weapons, armor, potions, blocks';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -213,30 +214,80 @@ export class Renderer {
     ctx.fillText('click a glowing node to spend a point  ·  K to close', W / 2, H - 30);
   }
 
+  /** Minecraft-style crafting: category tabs + recipe rows each with a 3x3 grid. */
   private craftPanel(ctx: CanvasRenderingContext2D, world: World): void {
-    ctx.fillStyle = 'rgba(8,6,16,0.8)';
+    ctx.fillStyle = 'rgba(8,6,16,0.92)';
     ctx.fillRect(0, 0, W, H);
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#fff';
-    ctx.shadowColor = '#ff37c8'; ctx.shadowBlur = 22;
-    ctx.font = 'bold 36px ui-monospace, monospace';
-    ctx.fillText('FORGE / UPGRADE', W / 2, 150);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#ffcf4d';
-    ctx.font = 'bold 18px ui-monospace, monospace';
-    ctx.fillText(`loot: ${world.loot}`, W / 2, 188);
-    ctx.font = '16px ui-monospace, monospace';
-    for (let i = 0; i < world.craftDefs.length; i++) {
-      const d = world.craftDefs[i];
-      const c = world.craftCost(i);
-      const matStr = c.mats.map(([m, n]) => `${n} ${MATERIALS[m].name}`).join(', ');
-      const ok = world.canCraft(i);
-      ctx.fillStyle = ok ? '#7cff5a' : '#6a6a7a';
-      ctx.fillText(`[${i + 1}] ${d.name} — ${d.desc} — ${c.loot} loot + ${matStr}`, W / 2, 240 + i * 32);
+    ctx.fillStyle = '#fff'; ctx.shadowColor = '#7cff5a'; ctx.shadowBlur = 20;
+    ctx.font = 'bold 32px ui-monospace, monospace';
+    ctx.fillText('CRAFTING', W / 2, 58); ctx.shadowBlur = 0;
+
+    // Your materials at a glance.
+    const matsOrder = [Mat.Wood, Mat.Stone, Mat.Ore, Mat.Metal, Mat.Dirt, Mat.Grass, Mat.Sand, Mat.Snow];
+    let mx = W / 2 - 392;
+    ctx.font = '12px ui-monospace, monospace';
+    for (const m of matsOrder) {
+      const n = world.inventory.get(m) ?? 0;
+      ctx.fillStyle = MAT_COLORS[m]; ctx.fillRect(mx, 78, 12, 12);
+      ctx.fillStyle = n > 0 ? '#fff' : '#666'; ctx.textAlign = 'left';
+      ctx.fillText(`${MATERIALS[m].name} ${n}`, mx + 16, 89);
+      mx += 99;
     }
-    ctx.fillStyle = '#cbb8ff';
-    ctx.font = '14px ui-monospace, monospace';
-    ctx.fillText('press 1-4 to craft · E to close', W / 2, 240 + world.craftDefs.length * 32 + 16);
+
+    // Category tabs.
+    for (let c = 0; c < CRAFT_CATEGORIES.length; c++) {
+      const r = craftTabRect(c); const cat = CRAFT_CATEGORIES[c];
+      const active = world.craftCategory === cat.id;
+      ctx.fillStyle = active ? cat.color : 'rgba(40,40,52,0.9)';
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = cat.color; ctx.lineWidth = 2; ctx.strokeRect(r.x, r.y, r.w, r.h);
+      ctx.fillStyle = active ? '#0c0712' : '#cbd'; ctx.textAlign = 'center';
+      ctx.font = 'bold 16px ui-monospace, monospace';
+      ctx.fillText(cat.name, r.x + r.w / 2, r.y + 28);
+    }
+
+    // Recipe rows.
+    const list = recipesIn(world.craftCategory);
+    for (let i = 0; i < list.length; i++) {
+      const rec = list[i]; const r = craftRowRect(i);
+      const owned = !!rec.permanent && world.owned.has(rec.id);
+      const ok = world.canCraftRecipe(rec);
+      ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = ok ? '#7cff5a' : owned ? '#39d6ff' : 'rgba(255,255,255,0.14)';
+      ctx.lineWidth = ok ? 2 : 1; ctx.strokeRect(r.x, r.y, r.w, r.h);
+
+      // The iconic 3x3 grid.
+      const gx = r.x + 12, gy = r.y + 8, cs = 18;
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(gx - 3, gy - 3, cs * 3 + 6, cs * 3 + 6);
+      for (let k = 0; k < 9; k++) {
+        const cell = rec.shape[k];
+        const cxp = gx + (k % 3) * cs, cyp = gy + ((k / 3) | 0) * cs;
+        ctx.fillStyle = cell ? MAT_COLORS[cell] : 'rgba(255,255,255,0.05)';
+        ctx.fillRect(cxp + 1, cyp + 1, cs - 2, cs - 2);
+      }
+
+      const tx = gx + cs * 3 + 16;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = owned ? '#39d6ff' : '#fff';
+      ctx.font = 'bold 17px ui-monospace, monospace';
+      ctx.fillText(`[${i + 1}] ${rec.name}${owned ? '   ✓ owned' : ''}`, tx, r.y + 25);
+      ctx.fillStyle = '#bdb6d6'; ctx.font = '13px ui-monospace, monospace';
+      ctx.fillText(rec.desc, tx, r.y + 45);
+
+      // Ingredient costs (green if you have enough).
+      let ix = tx; ctx.font = '12px ui-monospace, monospace';
+      for (const [m, n] of rec.ingredients) {
+        const have = world.inventory.get(m) ?? 0;
+        ctx.fillStyle = have >= n ? '#7cff5a' : '#ff6b6b';
+        const label = `${MATERIALS[m].name} ${have}/${n}`;
+        ctx.fillText(label, ix, r.y + 63);
+        ix += ctx.measureText(label).width + 18;
+      }
+    }
+
+    ctx.textAlign = 'center'; ctx.fillStyle = '#cbb8ff'; ctx.font = '14px ui-monospace, monospace';
+    ctx.fillText('click a tab, then click a recipe (or press its number) to craft  ·  E to close', W / 2, H - 22);
   }
 
   private terrain(ctx: CanvasRenderingContext2D, world: World): void {
@@ -311,7 +362,7 @@ export class Renderer {
     // Player vitals + stats (top-left): HP, mana, XP bars.
     const p = world.player;
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.fillRect(12, 12, 250, 116);
+    ctx.fillRect(12, 12, 280, 168);
     const bar = (y: number, frac: number, col: string) => {
       ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(20, y, 200, 12);
       ctx.fillStyle = col; ctx.fillRect(20, y, 200 * Math.max(0, Math.min(1, frac)), 12);
@@ -326,9 +377,20 @@ export class Renderer {
     ctx.fillText(`Lv ${world.char.level}   HP ${world.player.coreHealth | 0}/${world.player.maxCore | 0}   MP ${world.mana | 0}/${world.maxMana}`, 20, 80);
     ctx.fillText(`slain ${world.kills} · loot ${world.loot} · depth ${world.depth()}`, 20, 96);
     ctx.fillText(`${world.grid.biomeAtPx(p.torsoBody.position.x)} · evo ${p.evolution} (Z) · K skills · E craft`, 20, 112);
+    // Crafted gear & consumables.
+    const it = world.items;
+    ctx.fillStyle = '#9ad6ff';
+    ctx.fillText(`pick T${world.digTier}  ·  ♥${it.hp ?? 0} [H]  ✦${it.mp ?? 0} [J]  ✺${it.bomb ?? 0} [B]`, 20, 128);
+    if (world.selectedBlock) {
+      ctx.fillStyle = '#7cff5a';
+      ctx.fillText(`block: ${world.selectedBlock} x${it[world.selectedBlock] ?? 0}  (hold Q place · R cycle)`, 20, 144);
+    } else {
+      ctx.fillStyle = '#6f6a86';
+      ctx.fillText('craft blocks (E) to build with Q', 20, 144);
+    }
     if (world.char.skillPoints > 0) {
       ctx.fillStyle = '#ffcf4d'; ctx.font = 'bold 12px ui-monospace, monospace';
-      ctx.fillText(`★ ${world.char.skillPoints} skill point${world.char.skillPoints > 1 ? 's' : ''} — press K`, 20, 126);
+      ctx.fillText(`★ ${world.char.skillPoints} skill point${world.char.skillPoints > 1 ? 's' : ''} — press K`, 20, 162);
     }
 
     // Inventory (top-right).
@@ -360,8 +422,8 @@ export class Renderer {
 
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.font = '13px ui-monospace, monospace';
-    ctx.fillText('A/D move · W jump (×2) · F/LMB attack & mine · E forge/upgrade · Z evolve · N mute · M menu', W / 2, H - 14);
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillText('A/D move · W jump · LMB attack/mine · 1-4 skills · E craft · K skills · hold Q build (R cycle) · H/J potion · B bomb · Z evo · M menu', W / 2, H - 14);
   }
 
   // ---- arena --------------------------------------------------------------

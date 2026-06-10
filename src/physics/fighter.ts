@@ -83,6 +83,7 @@ export class Fighter {
   evolution: Evolution = 'none';
   speedMul = 1; // movement multiplier (fast monsters, buffs)
   damageMul = 1; // outgoing attack damage multiplier (upgrades)
+  defenseMul = 1; // incoming damage multiplier (1 = none; crafted armor lowers it)
   /** World mode: returns the ground surface y below (x,y). Replaces the flat arena floor. */
   groundSampler?: (x: number, y: number) => number;
 
@@ -254,6 +255,20 @@ export class Fighter {
     }
     this.justDropped.push(w);
     return w;
+  }
+
+  /** Swap the held weapon for a freshly-made one (crafting). */
+  equipWeapon(weaponIndex: number): void {
+    if (this.weapon) {
+      if (this.grip) { Composite.remove(this.world, this.grip); this.grip = null; }
+      Composite.remove(this.world, this.weapon.body);
+      this.weapon = null;
+    }
+    const hand = this.parts.lowerArmR;
+    if (!hand) return;
+    const w = createWeapon(weaponIndex, hand.position.x, hand.position.y - 30, this.group, this.id);
+    Composite.add(this.world, w.body);
+    this.attachWeapon(w);
   }
 
   // ---- per-step control ---------------------------------------------------
@@ -808,6 +823,7 @@ export class Fighter {
       if (ar.hp <= 0) delete this.armor[part];
     }
     if (this.evolution === 'titan') dmg *= 0.7; // Titans shrug off blows
+    dmg *= this.defenseMul; // crafted armor
 
     // Core HP drain when the torso or head is struck.
     if (part === 'torso' || part === 'head') {

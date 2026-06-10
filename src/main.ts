@@ -8,6 +8,7 @@ import { UPGRADES } from './game/save';
 import { World } from './world/world';
 import { EVOLUTIONS } from './physics/fighter';
 import { SKILLS, skillNodePos } from './game/skills';
+import { CRAFT_CATEGORIES, recipesIn, craftTabRect, craftRowRect } from './game/crafting';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 canvas.width = CFG.view.width;
@@ -90,14 +91,35 @@ function frame(now: number): void {
           if (cur) for (const s of SKILLS) { const np = skillNodePos(s); if (Math.abs(cur.x - np.x) < 130 && Math.abs(cur.y - np.y) < 26) { world.learnSkill(s.id); break; } }
         }
       } else if (world.crafting) {
-        for (let i = 0; i < world.craftDefs.length; i++) if (input.consumePressed(`Digit${i + 1}`)) world.craft(i);
+        if (input.consumeClick()) {
+          const cur = input.cursor();
+          if (cur) {
+            let hitTab = false;
+            for (let c = 0; c < CRAFT_CATEGORIES.length; c++) {
+              if (inRect(cur, craftTabRect(c))) { world.craftCategory = CRAFT_CATEGORIES[c].id; hitTab = true; break; }
+            }
+            if (!hitTab) {
+              const list = recipesIn(world.craftCategory);
+              for (let i = 0; i < list.length; i++) if (inRect(cur, craftRowRect(i))) { world.craftRecipe(list[i].id); break; }
+            }
+          }
+        }
+        // number-key fallback for the visible category
+        const list = recipesIn(world.craftCategory);
+        for (let i = 0; i < list.length && i < 9; i++) if (input.consumePressed(`Digit${i + 1}`)) world.craftRecipe(list[i].id);
       } else {
         if (input.consumePressed('KeyZ')) {
           const e = EVOLUTIONS[(EVOLUTIONS.indexOf(world.player.evolution) + 1) % EVOLUTIONS.length];
           world.player.evolution = e;
           evoLabel = e;
         }
+        if (input.consumePressed('KeyR')) world.cycleBlock();
+        if (input.consumePressed('KeyH')) world.drink('hp', simTime);
+        if (input.consumePressed('KeyJ')) world.drink('mp', simTime);
+        if (input.consumePressed('KeyB')) { const cur = input.cursor(); if (cur) world.throwBomb(cur.x, cur.y, simTime); }
         for (let i = 0; i < 4; i++) if (input.consumePressed(`Digit${i + 1}`)) world.useSkill(i, simTime);
+        const cur = input.cursor();
+        if (cur && input.isDown('KeyQ')) world.placeBlockAt(cur.x, cur.y, simTime);
         const w = world;
         stepFixed(dtReal, () => w.step(simTime, input.player(0)));
       }
@@ -180,6 +202,10 @@ function drawBrush(): void {
   ctx.fillStyle = 'rgba(124,255,90,0.85)';
   ctx.fillText(`P1 evolution: ${evoLabel}  (Z: fly/dig/tank/beast/mutant/tinker)`, 32, CFG.view.height - 56);
   ctx.restore();
+}
+
+function inRect(p: { x: number; y: number }, r: { x: number; y: number; w: number; h: number }): boolean {
+  return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 }
 
 function drawCrosshair(): void {
