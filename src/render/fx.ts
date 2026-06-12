@@ -31,6 +31,7 @@ export class Fx implements FxSink {
   private shakeAmt = 0;
   shakeX = 0;
   shakeY = 0;
+  shakeEnabled = true; // toggleable in Settings (accessibility / preference)
   audio = new Audio();
 
   sound(name: SoundName, vol = 1): void {
@@ -101,6 +102,7 @@ export class Fx implements FxSink {
   }
 
   shake(amount: number): void {
+    if (!this.shakeEnabled) return;
     this.shakeAmt = Math.max(this.shakeAmt, amount);
   }
 

@@ -23,7 +23,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.34 · polish: enemy HP bars, elite crowns, biome skies, tidier HUD';
+const VERSION = 'v0.35 · settings page (sound/volume/shake) · [O] to open';
 
 // Per-biome sky tint so each region reads as a distinct place.
 const BIOME_TINT: Record<string, string> = {

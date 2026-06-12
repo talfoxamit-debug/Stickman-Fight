@@ -26,6 +26,7 @@ const renderer = new Renderer(ctx);
 
 let screen: 'menu' | 'play' = 'menu';
 let paused = false;
+let settingsOpen = false;
 let simTime = 0;
 let accumulator = 0;
 let last = performance.now();
@@ -73,6 +74,19 @@ function frame(now: number): void {
   last = now;
 
   if (input.consumePressed('KeyN')) fx.audio.toggleMute();
+  if (!settingsOpen && input.consumePressed('KeyO')) settingsOpen = true;
+
+  // Settings overlay pauses everything and renders on top of the current backdrop.
+  if (settingsOpen) {
+    handleSettings();
+    if (screen === 'menu') { renderer.draw(match, fx, false); drawMenu(); }
+    else if (world) renderer.drawWorld(world, fx);
+    else renderer.draw(match, fx, true);
+    if (settingsOpen) drawSettings();
+    input.endFrame();
+    requestAnimationFrame(frame);
+    return;
+  }
 
   if (screen === 'menu') {
     for (const m of MODES) if (input.consumePressed(`Digit${m.key}`)) startMode(m.mode);
@@ -191,7 +205,91 @@ function drawMenu(): void {
   }
   ctx.fillStyle = '#8a86a8';
   ctx.font = '13px ui-monospace, monospace';
-  ctx.fillText('press 1-5 to start  ·  in-game: M = menu', CFG.view.width / 2, CFG.view.height - 30);
+  ctx.fillText('press 1-5 to start  ·  [O] settings  ·  in-game: M = menu', CFG.view.width / 2, CFG.view.height - 30);
+  ctx.restore();
+}
+
+// ---- settings overlay -----------------------------------------------------
+
+const SETTINGS_W = 560;
+function settingRow(i: number): { x: number; y: number; w: number; h: number } {
+  return { x: CFG.view.width / 2 - SETTINGS_W / 2, y: 244 + i * 72, w: SETTINGS_W, h: 56 };
+}
+function volBtn(plus: boolean): { x: number; y: number; w: number; h: number } {
+  const r = settingRow(1);
+  return { x: r.x + r.w - (plus ? 64 : 124), y: r.y + 8, w: 50, h: 40 };
+}
+function changeVol(d: number): void {
+  fx.audio.setVolume(fx.audio.volume + d);
+}
+
+function handleSettings(): void {
+  if (input.consumePressed('KeyO') || input.consumePressed('Escape')) { settingsOpen = false; return; }
+  if (input.consumePressed('Digit1')) fx.audio.toggleMute();
+  if (input.consumePressed('Digit2')) fx.shakeEnabled = !fx.shakeEnabled;
+  if (input.consumePressed('Minus')) changeVol(-0.1);
+  if (input.consumePressed('Equal')) changeVol(0.1);
+  if (input.consumeClick()) {
+    const cur = input.cursor();
+    if (!cur) return;
+    if (inRect(cur, settingRow(0))) fx.audio.toggleMute();
+    else if (inRect(cur, volBtn(false))) changeVol(-0.1);
+    else if (inRect(cur, volBtn(true))) changeVol(0.1);
+    else if (inRect(cur, settingRow(2))) fx.shakeEnabled = !fx.shakeEnabled;
+    else if (inRect(cur, settingRow(3))) settingsOpen = false;
+  }
+}
+
+function settingsToggleRow(i: number, label: string, valStr: string, on: boolean): void {
+  const r = settingRow(i);
+  ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.strokeRect(r.x, r.y, r.w, r.h);
+  ctx.textAlign = 'left'; ctx.fillStyle = '#cbb8ff'; ctx.font = 'bold 22px ui-monospace, monospace';
+  ctx.fillText(label, r.x + 22, r.y + 36);
+  ctx.textAlign = 'right'; ctx.fillStyle = on ? '#7cff5a' : '#ff6b6b'; ctx.font = 'bold 22px ui-monospace, monospace';
+  ctx.fillText(valStr, r.x + r.w - 22, r.y + 36);
+}
+
+function drawSettings(): void {
+  const W = CFG.view.width, H = CFG.view.height;
+  ctx.save();
+  ctx.fillStyle = 'rgba(6,5,12,0.88)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff'; ctx.shadowColor = '#00f0ff'; ctx.shadowBlur = 22;
+  ctx.font = 'bold 40px ui-monospace, monospace';
+  ctx.fillText('SETTINGS', W / 2, 170);
+  ctx.shadowBlur = 0;
+
+  settingsToggleRow(0, 'Sound', fx.audio.muted ? 'OFF' : 'ON', !fx.audio.muted);
+
+  // Volume row with – / + buttons.
+  const rv = settingRow(1);
+  ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(rv.x, rv.y, rv.w, rv.h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.strokeRect(rv.x, rv.y, rv.w, rv.h);
+  ctx.textAlign = 'left'; ctx.fillStyle = '#cbb8ff'; ctx.font = 'bold 22px ui-monospace, monospace';
+  ctx.fillText('Volume', rv.x + 22, rv.y + 36);
+  for (const [plus, label] of [[false, '–'], [true, '+']] as [boolean, string][]) {
+    const b = volBtn(plus);
+    ctx.fillStyle = 'rgba(0,240,255,0.18)'; ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 1; ctx.strokeRect(b.x, b.y, b.w, b.h);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = 'bold 26px ui-monospace, monospace';
+    ctx.fillText(label, b.x + b.w / 2, b.y + 30);
+  }
+  ctx.textAlign = 'right'; ctx.fillStyle = '#7cff5a'; ctx.font = 'bold 20px ui-monospace, monospace';
+  ctx.fillText(`${Math.round(fx.audio.volume * 100)}%`, volBtn(false).x - 16, rv.y + 36);
+
+  settingsToggleRow(2, 'Screen shake', fx.shakeEnabled ? 'ON' : 'OFF', fx.shakeEnabled);
+
+  // Close button.
+  const rc = settingRow(3);
+  ctx.fillStyle = 'rgba(124,255,90,0.14)'; ctx.fillRect(rc.x, rc.y, rc.w, rc.h);
+  ctx.strokeStyle = '#7cff5a'; ctx.lineWidth = 1; ctx.strokeRect(rc.x, rc.y, rc.w, rc.h);
+  ctx.textAlign = 'center'; ctx.fillStyle = '#7cff5a'; ctx.font = 'bold 22px ui-monospace, monospace';
+  ctx.fillText('CLOSE', rc.x + rc.w / 2, rc.y + 36);
+
+  ctx.fillStyle = '#8a86a8'; ctx.font = '14px ui-monospace, monospace';
+  ctx.fillText('click options  ·  keys: 1 sound · 2 shake · –/= volume  ·  [O] or Esc to close', W / 2, H - 40);
   ctx.restore();
 }
 

@@ -6,6 +6,7 @@ export type SoundName =
 
 export class Audio {
   muted = false;
+  volume = 0.5; // master volume (0..1), adjustable in Settings
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
@@ -16,7 +17,7 @@ export class Audio {
     if (!this.ctx) {
       this.ctx = new AudioContext();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.5;
+      this.master.gain.value = this.volume;
       this.master.connect(this.ctx.destination);
       const n = this.ctx.sampleRate * 0.4;
       this.noiseBuf = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
@@ -34,6 +35,13 @@ export class Audio {
   toggleMute(): boolean {
     this.muted = !this.muted;
     return this.muted;
+  }
+
+  /** Set master volume (0..1); unmutes if raised above zero. */
+  setVolume(v: number): void {
+    this.volume = Math.max(0, Math.min(1, v));
+    if (this.master) this.master.gain.value = this.volume;
+    if (this.volume > 0) this.muted = false;
   }
 
   private tone(t: number, f0: number, f1: number, dur: number, vol: number, type: OscillatorType = 'sine'): void {
