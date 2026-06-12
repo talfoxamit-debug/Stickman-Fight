@@ -7,6 +7,7 @@ import { clamp } from '../core/util';
 import type { PlayerInput } from '../core/input';
 import { EMPTY_INPUT } from '../core/input';
 import { Fighter, type Evolution } from '../physics/fighter';
+import type { DamageType } from '../physics/armor';
 import { WorldGrid } from './worldgrid';
 import { Mat } from '../powder/materials';
 import { Bot } from '../game/bot';
@@ -21,6 +22,19 @@ import { QUESTS, type QuestStage, type QuestStats, newQuestStats, questValue } f
 
 const { Engine, Composite, Body, Events } = Matter;
 const C = CFG.combat;
+
+// Aimed elemental spells: cast toward the mouse cursor (hold RMB), cycle with C.
+export interface SpellDef { name: string; type: DamageType; color: string; dmg: number; mana: number; speed: number; radius: number; stagger: number; aoe: number }
+export const SPELLS: SpellDef[] = [
+  { name: 'Firebolt', type: 'heat', color: '#ff7a18', dmg: 16, mana: 8, speed: 15, radius: 13, stagger: 0, aoe: 72 },
+  { name: 'Frost', type: 'phys', color: '#bfe9ff', dmg: 11, mana: 7, speed: 13, radius: 13, stagger: 420, aoe: 0 },
+  { name: 'Acid', type: 'acid', color: '#9cff5a', dmg: 14, mana: 7, speed: 14, radius: 12, stagger: 0, aoe: 0 },
+  { name: 'Spark', type: 'shock', color: '#cdeeff', dmg: 12, mana: 5, speed: 22, radius: 10, stagger: 200, aoe: 0 },
+];
+
+export interface Projectile {
+  x: number; y: number; vx: number; vy: number; spell: SpellDef; damage: number; life: number; trail: { x: number; y: number }[];
+}
 
 export class World {
   engine: Matter.Engine;
@@ -74,6 +88,11 @@ export class World {
   questIndex = 0;
   private prevPlayerX = 0;
 
+  // Aimed elemental spells (mouse-aim, RMB to cast).
+  projectiles: Projectile[] = [];
+  spellIndex = 0;
+  private spellCdUntil = 0;
+
   constructor(private fx: FxSink, public playerEvo: Evolution = 'none') {
     this.engine = Engine.create();
     this.engine.gravity.y = CFG.sim.gravityY;
@@ -106,7 +125,7 @@ export class World {
     this.player.applyControl(now, playerInput);
     for (let i = 0; i < this.monsters.length; i++) {
       const m = this.monsters[i];
-      const inp = m.koed ? EMPTY_INPUT : this.bots[i].think(m, this.player, []);
+      const inp = m.koed ? EMPTY_INPUT : this.bots[i].think(m, this.player, [], now);
       m.applyControl(now, inp);
     }
 
@@ -117,6 +136,7 @@ export class World {
     this.hitstopSteps = Math.max(this.hitstopSteps, resolveMelee([this.player, ...this.monsters], this.fx, now));
     this.drainLandings();
     this.mineWithSwing(now, input);
+    this.updateProjectiles(now);
     this.worldHazards(now);
     this.handleDeaths(now);
     this.updateQuests(now);
@@ -150,7 +170,9 @@ export class World {
     const m = this.makeFighter(id, x, sy, side > 0 ? -1 : 1, a.color, a.accent, a.name.toUpperCase(), wi, hp, a.evolution);
     m.speedMul = a.speedMul ?? 1;
     this.monsters.push(m);
-    this.bots.push(new Bot());
+    // Smarter enemies the further you get (kills) and the deeper you dig (depth).
+    const skill = clamp(0.32 + this.kills * 0.025 + this.depth() * 0.004, 0.32, 0.9);
+    this.bots.push(new Bot(skill));
     this.fx.sound('spawn', 0.6);
   }
 
@@ -248,7 +270,9 @@ export class World {
     if (tMeta.fighterId < 0 || !tMeta.part) return;
     const tf = this.byId.get(tMeta.fighterId);
     if (!tf) return;
-    const hostile = (oMeta.fighterId >= 0 && oMeta.fighterId !== tMeta.fighterId) || oMeta.kind === 'weapon';
+    // Hostile = a DIFFERENT fighter's body part, or a weapon that isn't yours.
+    // (Your own held weapon must never damage you — that was the phantom sword self-hit.)
+    const hostile = oMeta.fighterId !== tMeta.fighterId && (oMeta.kind === 'weapon' || oMeta.fighterId >= 0);
     if (!hostile) return;
     // Intentional strikes go through resolveMelee; impact damage only for incidental
     // contact (ragdoll shoves, loose/thrown weapons).
@@ -408,6 +432,63 @@ export class World {
       x: (sx - CFG.view.width / 2) / this.zoom + this.camera.x,
       y: (sy - CFG.view.height / 2) / this.zoom + this.camera.y,
     };
+  }
+
+  // ---- aimed elemental spells (RMB cast toward the cursor) -----------------
+
+  currentSpell(): SpellDef {
+    return SPELLS[this.spellIndex];
+  }
+
+  cycleSpell(): void {
+    this.spellIndex = (this.spellIndex + 1) % SPELLS.length;
+    this.flash(`Spell: ${this.currentSpell().name}`, this.simNow);
+    this.fx.sound('ui', 0.6);
+  }
+
+  /** Fire the selected spell from your hand toward the cursor (held RMB streams). */
+  castSpell(sx: number, sy: number, now: number): void {
+    if (this.player.koed || this.skillTreeOpen || this.crafting || now < this.spellCdUntil) return;
+    const sp = this.currentSpell();
+    if (this.mana < sp.mana) { if (now > this.spellCdUntil) this.fx.sound('ui', 0.5); this.spellCdUntil = now + 200; return; }
+    this.mana -= sp.mana;
+    this.spellCdUntil = now + 250; // cast rate
+    const hand = this.player.handPos();
+    const target = this.screenToWorld(sx, sy);
+    let dx = target.x - hand.x, dy = target.y - hand.y;
+    const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+    this.player.facing = dx >= 0 ? 1 : -1;
+    const mul = passives(this.char.learned).spell;
+    this.projectiles.push({ x: hand.x, y: hand.y, vx: dx * sp.speed, vy: dy * sp.speed, spell: sp, damage: sp.dmg * mul, life: 1200, trail: [] });
+    this.fx.impact(hand.x, hand.y, 6, sp.color);
+    this.fx.sound('zap', 0.8);
+  }
+
+  private updateProjectiles(now: number): void {
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const pr = this.projectiles[i];
+      pr.trail.push({ x: pr.x, y: pr.y });
+      if (pr.trail.length > 6) pr.trail.shift();
+      pr.x += pr.vx; pr.y += pr.vy; pr.life -= CFG.sim.fixedDt;
+      let dead = pr.life <= 0;
+      if (!dead && this.grid.isSolidPx(pr.x, pr.y)) { this.fx.impact(pr.x, pr.y, 14, pr.spell.color); dead = true; }
+      if (!dead) {
+        for (const m of this.monsters) {
+          if (m.koed) continue;
+          const c = m.torsoBody.position;
+          if (Math.hypot(c.x - pr.x, c.y - pr.y) > pr.spell.radius + 24) continue;
+          const applied = m.damagePart('torso', pr.damage, now, pr.spell.type);
+          if (pr.spell.stagger > 0) m.stagger(now, pr.spell.stagger);
+          if (pr.spell.aoe > 0) this.aoeDamage(pr.x, pr.y, pr.spell.aoe, pr.damage * 0.5, 5, 'heat');
+          if (applied > 0) { this.fx.blood(c.x, c.y, applied); this.lifestealFrom(applied); }
+          this.fx.impact(pr.x, pr.y, 18, pr.spell.color);
+          this.fx.sound('hit', 0.6);
+          dead = true;
+          break;
+        }
+      }
+      if (dead) this.projectiles.splice(i, 1);
+    }
   }
 
   /** Recompute player stats from crafted gear + skill-tree passives. */

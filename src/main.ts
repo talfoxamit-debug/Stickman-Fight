@@ -114,14 +114,19 @@ function frame(now: number): void {
           evoLabel = e;
         }
         if (input.consumePressed('KeyR')) world.cycleBlock();
+        if (input.consumePressed('KeyC')) world.cycleSpell();
         if (input.consumePressed('KeyH')) world.drink('hp', simTime);
         if (input.consumePressed('KeyJ')) world.drink('mp', simTime);
         if (input.consumePressed('KeyB')) { const cur = input.cursor(); if (cur) world.throwBomb(cur.x, cur.y, simTime); }
         for (let i = 0; i < 4; i++) if (input.consumePressed(`Digit${i + 1}`)) world.useSkill(i, simTime);
         const cur = input.cursor();
+        // Aim with the mouse, hold RMB to cast the selected spell at enemies.
+        if (cur && input.rightDown()) world.castSpell(cur.x, cur.y, simTime);
         if (cur && input.isDown('KeyQ')) world.placeBlockAt(cur.x, cur.y, simTime);
         const w = world;
-        stepFixed(dtReal, () => w.step(simTime, input.player(0)));
+        // Block via S only in world — RMB is reserved for spell-casting.
+        const wInput = { ...input.player(0), block: input.isDown('KeyS') };
+        stepFixed(dtReal, () => w.step(simTime, wInput));
       }
     }
     if (world) { renderer.drawWorld(world, fx); drawCrosshair(); }

@@ -92,6 +92,11 @@ export class Input {
     return kb;
   }
 
+  /** Right mouse button held (used to aim+cast spells toward the cursor). */
+  rightDown(): boolean {
+    return this.mRight;
+  }
+
   isDown(code: string): boolean {
     return this.down.has(code);
   }

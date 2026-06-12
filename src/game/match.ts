@@ -168,7 +168,7 @@ export class Match {
       this.state === 'fight' ? rawInputs[0] : EMPTY_INPUT,
       this.state === 'fight'
         ? this.botEnabled
-          ? this.bot.think(this.fighters[1], this.fighters[0], this.looseWeapons)
+          ? this.bot.think(this.fighters[1], this.fighters[0], this.looseWeapons, now)
           : rawInputs[1]
         : EMPTY_INPUT,
     ];
@@ -256,8 +256,9 @@ export class Match {
   ): void {
     // Target must be a damageable fighter part.
     if (tMeta.fighterId < 0 || !tMeta.part) return;
-    // Source must be a different fighter's part/weapon, or a loose weapon.
-    const hostile = (oMeta.fighterId >= 0 && oMeta.fighterId !== tMeta.fighterId) || oMeta.kind === 'weapon';
+    // Hostile = a different fighter's part, or a weapon that isn't yours. Your own
+    // held weapon must never damage you (the phantom sword self-hit).
+    const hostile = oMeta.fighterId !== tMeta.fighterId && (oMeta.kind === 'weapon' || oMeta.fighterId >= 0);
     if (!hostile || oMeta.kind === 'ground') return;
     // Intentional strikes are resolved by resolveMelee; impact damage is only for
     // incidental contact (ragdoll shoves, loose/thrown weapons).

@@ -23,7 +23,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.31 · world objectives + onboarding (guided loop)';
+const VERSION = 'v0.32 · smart AI + aimed spells + no sword self-damage';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -113,6 +113,7 @@ export class Renderer {
     this.chests(ctx, world);
     for (const m of world.monsters) this.fighter(ctx, m);
     this.fighter(ctx, world.player);
+    this.spells(ctx, world);
     fx.draw(ctx);
     ctx.restore();
 
@@ -359,6 +360,36 @@ export class Renderer {
     }
   }
 
+  /** Elemental spell projectiles: a glowing bolt with a fading trail. */
+  private spells(ctx: CanvasRenderingContext2D, world: World): void {
+    for (const p of world.projectiles) {
+      ctx.save();
+      ctx.strokeStyle = p.spell.color;
+      ctx.lineCap = 'round';
+      for (let i = 1; i < p.trail.length; i++) {
+        ctx.globalAlpha = (i / p.trail.length) * 0.6;
+        ctx.lineWidth = (i / p.trail.length) * p.spell.radius * 1.1;
+        ctx.beginPath();
+        ctx.moveTo(p.trail[i - 1].x, p.trail[i - 1].y);
+        ctx.lineTo(p.trail[i].x, p.trail[i].y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = p.spell.color;
+      ctx.shadowColor = p.spell.color;
+      ctx.shadowBlur = 18;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.spell.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.spell.radius * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   /** The current objective, top-center: a goal + the one control it teaches. */
   private questTracker(ctx: CanvasRenderingContext2D, world: World): void {
     const q = world.currentQuest();
@@ -392,7 +423,7 @@ export class Renderer {
     // Player vitals + stats (top-left): HP, mana, XP bars.
     const p = world.player;
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.fillRect(12, 12, 280, 168);
+    ctx.fillRect(12, 12, 280, 190);
     const bar = (y: number, frac: number, col: string) => {
       ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(20, y, 200, 12);
       ctx.fillStyle = col; ctx.fillRect(20, y, 200 * Math.max(0, Math.min(1, frac)), 12);
@@ -422,9 +453,14 @@ export class Renderer {
       ctx.fillStyle = '#6f6a86';
       ctx.fillText('craft blocks (E) to build with Q', 20, 144);
     }
+    // Aimed spell selector.
+    const sp = world.currentSpell();
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillStyle = sp.color;
+    ctx.fillText(`✷ ${sp.name} spell  ·  aim + hold RMB to cast  ·  C cycle`, 20, 160);
     if (world.char.skillPoints > 0) {
       ctx.fillStyle = '#ffcf4d'; ctx.font = 'bold 12px ui-monospace, monospace';
-      ctx.fillText(`★ ${world.char.skillPoints} skill point${world.char.skillPoints > 1 ? 's' : ''} — press K`, 20, 162);
+      ctx.fillText(`★ ${world.char.skillPoints} skill point${world.char.skillPoints > 1 ? 's' : ''} — press K`, 20, 178);
     }
 
     // Inventory (top-right).
@@ -457,9 +493,9 @@ export class Renderer {
     ctx.textAlign = 'center';
     ctx.font = '12px ui-monospace, monospace';
     ctx.fillStyle = 'rgba(255,210,120,0.85)';
-    ctx.fillText('FIGHT: tap LMB = light combo · hold LMB = heavy · S/RMB block (time it = PARRY!) · double-tap A/D = dodge-roll · mind your stamina', W / 2, H - 30);
+    ctx.fillText('FIGHT: tap LMB = light combo · hold LMB = heavy · S = block (time it = PARRY!) · double-tap A/D = dodge-roll · mind your stamina', W / 2, H - 30);
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillText('A/D move · W jump · LMB mine · 1-4 skills · hold Q build (R cycle) · H/J potion · B bomb · E craft · K skills · Z evo · M menu', W / 2, H - 14);
+    ctx.fillText('A/D move · W jump · LMB mine · aim+RMB cast spell (C cycle) · 1-4 skills · hold Q build · H/J potion · B bomb · E craft · K skills · M menu', W / 2, H - 14);
   }
 
   // ---- arena --------------------------------------------------------------

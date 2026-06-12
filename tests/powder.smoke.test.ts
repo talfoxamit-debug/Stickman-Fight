@@ -40,7 +40,7 @@ describe('powder / chemistry', () => {
     let t = 0;
     for (let i = 0; i < 60 * 12 && m.state !== 'matchover'; i++) {
       t += 1000 / 60;
-      const a = m.state === 'fight' ? p1.think(m.fighters[0], m.fighters[1], m.looseWeapons) : EMPTY_INPUT;
+      const a = m.state === 'fight' ? p1.think(m.fighters[0], m.fighters[1], m.looseWeapons, t) : EMPTY_INPUT;
       m.step(t, [a, EMPTY_INPUT]);
     }
     for (const f of m.fighters) expect(Number.isFinite(f.torsoBody.position.y)).toBe(true);
