@@ -23,7 +23,15 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.33 · loop stakes: depth danger/reward, biome threats, elites';
+const VERSION = 'v0.34 · polish: enemy HP bars, elite crowns, biome skies, tidier HUD';
+
+// Per-biome sky tint so each region reads as a distinct place.
+const BIOME_TINT: Record<string, string> = {
+  snow: '#cfeaff',
+  forest: '#8fd98f',
+  desert: '#ffd98a',
+  volcanic: '#ff6a3a',
+};
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -103,6 +111,15 @@ export class Renderer {
       ctx.fillRect(0, 0, W, H);
       if (dep < 0.55) { ctx.globalAlpha = 1 - dep / 0.55; this.worldBackground(ctx, world); }
       ctx.restore();
+      // Biome atmosphere: tint the sky so each region reads as a distinct place.
+      const tint = BIOME_TINT[world.grid.biomeAtPx(world.camera.x)];
+      if (tint && dep < 0.7) {
+        ctx.save();
+        ctx.globalAlpha = (1 - dep / 0.7) * 0.3;
+        ctx.fillStyle = tint;
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      }
     }
 
     ctx.save();
@@ -113,6 +130,7 @@ export class Renderer {
     this.chests(ctx, world);
     for (const m of world.monsters) this.fighter(ctx, m);
     this.fighter(ctx, world.player);
+    for (const m of world.monsters) this.monsterBadge(ctx, world, m);
     this.spells(ctx, world);
     fx.draw(ctx);
     ctx.restore();
@@ -360,6 +378,39 @@ export class Renderer {
     }
   }
 
+  /** Floating HP bar over each monster (+ a crown/aura for elites). */
+  private monsterBadge(ctx: CanvasRenderingContext2D, world: World, m: Fighter): void {
+    if (m.koed) return;
+    const head = m.parts.head;
+    const x = head.position.x;
+    const y = head.position.y - 30;
+    const elite = world.isElite(m);
+    const bw = elite ? 58 : 44, bh = elite ? 6 : 4;
+    const frac = Math.max(0, m.coreHealth / m.maxCore);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(x - bw / 2 - 1, y - 1, bw + 2, bh + 2);
+    ctx.fillStyle = frac > 0.5 ? '#7cff5a' : frac > 0.25 ? '#ffcf4d' : '#ff5a5a';
+    ctx.fillRect(x - bw / 2, y, bw * frac, bh);
+    if (elite) {
+      ctx.save();
+      ctx.fillStyle = '#ffd24a';
+      ctx.shadowColor = '#ffe9a0';
+      ctx.shadowBlur = 12;
+      const cy = y - 16, cw = 24;
+      ctx.beginPath();
+      ctx.moveTo(x - cw / 2, cy + 10);
+      ctx.lineTo(x - cw / 2, cy);
+      ctx.lineTo(x - cw / 4, cy + 6);
+      ctx.lineTo(x, cy - 3);
+      ctx.lineTo(x + cw / 4, cy + 6);
+      ctx.lineTo(x + cw / 2, cy);
+      ctx.lineTo(x + cw / 2, cy + 10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   /** Elemental spell projectiles: a glowing bolt with a fading trail. */
   private spells(ctx: CanvasRenderingContext2D, world: World): void {
     for (const p of world.projectiles) {
@@ -504,9 +555,15 @@ export class Renderer {
     ctx.textAlign = 'center';
     ctx.font = '12px ui-monospace, monospace';
     ctx.fillStyle = 'rgba(255,210,120,0.85)';
-    ctx.fillText('FIGHT: tap LMB = light combo · hold LMB = heavy · S = block (time it = PARRY!) · double-tap A/D = dodge-roll · mind your stamina', W / 2, H - 30);
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillText('A/D move · W jump · LMB mine · aim+RMB cast spell (C cycle) · 1-4 skills · hold Q build · H/J potion · B bomb · E craft · K skills · M menu', W / 2, H - 14);
+    if (world.currentQuest()) {
+      // Full reference while learning the ropes; it fades away once onboarding is done.
+      ctx.fillText('FIGHT: tap LMB = light combo · hold LMB = heavy · S = block (time it = PARRY!) · double-tap A/D = dodge-roll · mind your stamina', W / 2, H - 30);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fillText('A/D move · W jump · LMB mine · aim+RMB cast spell (C cycle) · 1-4 skills · hold Q build · H/J potion · B bomb · E craft · K skills · M menu', W / 2, H - 14);
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillText('LMB fight/mine · RMB cast · S block · dodge: 2×A/D · E craft · K skills · B bomb · H/J potion · M menu', W / 2, H - 14);
+    }
   }
 
   // ---- arena --------------------------------------------------------------

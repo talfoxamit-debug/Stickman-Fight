@@ -158,6 +158,11 @@ export class World {
     this.centerCamera();
   }
 
+  /** Is this monster an elite "guardian" (for the renderer's crown/aura)? */
+  isElite(f: Fighter): boolean {
+    return this.eliteIds.has(f.id);
+  }
+
   /** Difficulty/reward tier: rises with kills and (faster) with how deep you've dug. */
   dangerTier(): number {
     return Math.max(1, 1 + ((this.kills / 3) | 0) + ((this.depth() / 12) | 0));
