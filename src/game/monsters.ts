@@ -30,3 +30,25 @@ export function pickArchetype(wave: number): MonsterArchetype {
   const pool = ARCHETYPES.filter((a) => (a.minWave ?? 1) <= wave);
   return pool[(Math.random() * pool.length) | 0] ?? ARCHETYPES[0];
 }
+
+// Each biome favours a signature pair of threats (so where you fight matters).
+const BIOME_FAVORS: Record<string, string[]> = {
+  snow: ['Flyer', 'Runner'],
+  forest: ['Shambler', 'Brute'],
+  desert: ['Runner', 'Bomber'],
+  volcanic: ['Fire Imp', 'Brute'],
+};
+
+/** Weighted pick: gated by danger tier, biased toward the local biome's signature foes. */
+export function pickArchetypeFor(tier: number, biome: string): MonsterArchetype {
+  const pool = ARCHETYPES.filter((a) => (a.minWave ?? 1) <= tier);
+  if (pool.length === 0) return ARCHETYPES[0];
+  const favors = BIOME_FAVORS[biome] ?? [];
+  const weighted: MonsterArchetype[] = [];
+  for (const a of pool) {
+    weighted.push(a);
+    if (favors.includes(a.name)) weighted.push(a, a); // 3x weight for biome signatures
+  }
+  return weighted[(Math.random() * weighted.length) | 0];
+}
+

@@ -11,7 +11,7 @@ import type { DamageType } from '../physics/armor';
 import { WorldGrid } from './worldgrid';
 import { Mat } from '../powder/materials';
 import { Bot } from '../game/bot';
-import { pickArchetype } from '../game/monsters';
+import { pickArchetypeFor } from '../game/monsters';
 import { resolveMelee } from '../game/combat';
 import type { BodyMeta } from '../types';
 import type { FxSink } from '../game/match';
@@ -81,7 +81,9 @@ export class World {
   private playerDeadAt = 0;
   private simNow = 0;
   private hitstopSteps = 0;
-  private readonly MAX_MONSTERS = 4;
+  // Loop stakes: danger + reward escalate with depth; elites are the deep prizes.
+  private eliteIds = new Set<number>();
+  private deepestBand = 0;
 
   // Onboarding / objective chain (gives the world direction + teaches one control at a time).
   questStats: QuestStats = newQuestStats();
@@ -156,24 +158,44 @@ export class World {
     this.centerCamera();
   }
 
+  /** Difficulty/reward tier: rises with kills and (faster) with how deep you've dug. */
+  dangerTier(): number {
+    return Math.max(1, 1 + ((this.kills / 3) | 0) + ((this.depth() / 12) | 0));
+  }
+
+  /** Deeper = bigger swarms. */
+  private maxMonsters(): number {
+    return Math.min(7, 3 + ((this.depth() / 22) | 0));
+  }
+
   private spawnMonsters(now: number): void {
-    if (this.player.koed || this.monsters.length >= this.MAX_MONSTERS || now < this.spawnAt) return;
-    this.spawnAt = now + 2600;
+    if (this.player.koed || this.monsters.length >= this.maxMonsters() || now < this.spawnAt) return;
+    const depth = this.depth();
+    this.spawnAt = now + Math.max(1100, 2600 - depth * 22); // they come faster the deeper you go
     const side = Math.random() < 0.5 ? -1 : 1;
     const span = (CFG.view.width / this.zoom) * 0.62;
     const x = clamp(this.player.torsoBody.position.x + side * span, 60, this.grid.widthPx - 60);
-    const a = pickArchetype(Math.min(7, 1 + ((this.kills / 3) | 0)));
+    const tier = this.dangerTier();
+    const biome = this.grid.biomeAtPx(x);
+    const a = pickArchetypeFor(tier, biome);
     const id = this.nextId++;
-    const hp = (52 + this.kills * 4) * a.hpMul;
+
+    // Elite "guardian": rare near the surface, common deep — a tanky, oversized prize.
+    const elite = depth > 12 && Math.random() < Math.min(0.4, 0.06 + depth * 0.004);
+    let hp = (46 + tier * 11) * a.hpMul;
+    let color = a.color, accent = a.accent, evo = a.evolution;
+    if (elite) { hp *= 2.4; color = '#ffd24a'; accent = '#fff3c0'; evo = 'titan'; this.eliteIds.add(id); }
+
     const wi = typeof a.weapon === 'number' ? a.weapon : (Math.random() * 3) | 0;
     const sy = this.grid.groundBelowPx(x, 0) - 70;
-    const m = this.makeFighter(id, x, sy, side > 0 ? -1 : 1, a.color, a.accent, a.name.toUpperCase(), wi, hp, a.evolution);
+    const m = this.makeFighter(id, x, sy, side > 0 ? -1 : 1, color, accent, a.name.toUpperCase(), wi, hp, evo);
     m.speedMul = a.speedMul ?? 1;
     this.monsters.push(m);
     // Smarter enemies the further you get (kills) and the deeper you dig (depth).
-    const skill = clamp(0.32 + this.kills * 0.025 + this.depth() * 0.004, 0.32, 0.9);
+    const skill = clamp(0.32 + this.kills * 0.025 + depth * 0.004 + (elite ? 0.15 : 0), 0.32, 0.95);
     this.bots.push(new Bot(skill));
     this.fx.sound('spawn', 0.6);
+    if (elite) this.flash('⚠ ELITE GUARDIAN approaches', now);
   }
 
   private mineWithSwing(now: number, input: PlayerInput): void {
@@ -218,20 +240,27 @@ export class World {
   }
 
   private handleDeaths(now: number): void {
+    const depthMul = 1 + this.depth() * 0.03; // deeper kills pay more
     for (let i = this.monsters.length - 1; i >= 0; i--) {
       const m = this.monsters[i];
       if (!m.koed) continue;
       this.kills++;
-      this.addXP(8 + ((m.maxCore / 4) | 0));
-      this.loot += 5 + ((m.maxCore / 30) | 0);
-      if (Math.random() < 0.45) this.inventory.set(Mat.Ore, (this.inventory.get(Mat.Ore) ?? 0) + 1);
+      const elite = this.eliteIds.has(m.id);
+      this.eliteIds.delete(m.id);
+      const baseLoot = Math.round((5 + ((m.maxCore / 30) | 0)) * depthMul * (elite ? 3 : 1));
+      this.addXP(Math.round((8 + ((m.maxCore / 4) | 0)) * (elite ? 2.5 : 1)));
+      this.loot += baseLoot;
+      // Ore drops get richer with depth; elites are guaranteed a haul.
+      const oreDrop = elite ? 3 + ((Math.random() * 3) | 0) : (Math.random() < 0.4 + this.depth() * 0.006 ? 1 : 0);
+      if (oreDrop > 0) this.inventory.set(Mat.Ore, (this.inventory.get(Mat.Ore) ?? 0) + oreDrop);
       const p = m.torsoBody.position;
       this.fx.confetti(p.x, p.y);
+      if (elite) this.fx.shake(14);
       m.destroy();
       this.byId.delete(m.id);
       this.monsters.splice(i, 1);
       this.bots.splice(i, 1);
-      this.flash(`SLAIN! +${5 + ((m.maxCore / 30) | 0)} loot`, now);
+      this.flash(elite ? `★ ELITE SLAIN! +${baseLoot} loot +${oreDrop} ore` : `SLAIN! +${baseLoot} loot`, now);
     }
     if (this.player.koed) {
       if (this.playerDeadAt === 0) { this.playerDeadAt = now + 2600; this.flash('YOU DIED — respawning…', now + 2600); this.loot = Math.floor(this.loot * 0.5); }
@@ -556,7 +585,19 @@ export class World {
     if (!this.player.koed) this.questStats.moved += Math.abs(px - this.prevPlayerX);
     this.prevPlayerX = px;
     this.questStats.kills = this.kills;
-    this.questStats.maxDepth = Math.max(this.questStats.maxDepth, this.depth());
+    const depth = this.depth();
+    this.questStats.maxDepth = Math.max(this.questStats.maxDepth, depth);
+
+    // Descent milestones: each new depth band raises the stakes (and pays a bonus).
+    const band = (depth / 20) | 0;
+    if (band > this.deepestBand) {
+      this.deepestBand = band;
+      const bonus = band * 6;
+      this.loot += bonus;
+      this.fx.sound('spawn', 0.9);
+      this.fx.shake(8);
+      this.flash(`▼ DEPTH ${band * 20} — danger & riches rise  (+${bonus} loot)`, now);
+    }
 
     const q = this.currentQuest();
     if (!q) return;

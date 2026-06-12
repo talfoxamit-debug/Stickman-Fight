@@ -23,7 +23,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.32 · smart AI + aimed spells + no sword self-damage';
+const VERSION = 'v0.33 · loop stakes: depth danger/reward, biome threats, elites';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -399,6 +399,7 @@ export class Renderer {
       ctx.font = 'bold 14px ui-monospace, monospace';
       ctx.fillStyle = 'rgba(124,255,90,0.85)';
       ctx.fillText('★ Free play — explore, dig deeper, get stronger', cx, top + 16);
+      this.dangerMeter(ctx, world, top + 36);
       return;
     }
     const prog = world.questProgress();
@@ -417,6 +418,16 @@ export class Renderer {
     // The single control hint for this step.
     ctx.fillStyle = '#bfe9ff'; ctx.font = '12px ui-monospace, monospace';
     ctx.fillText(q.hint, cx, top + 49);
+    this.dangerMeter(ctx, world, top + 74);
+  }
+
+  /** Rising-stakes readout: a danger meter that climbs with depth + kills. */
+  private dangerMeter(ctx: CanvasRenderingContext2D, world: World, y: number): void {
+    const tier = world.dangerTier();
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 12px ui-monospace, monospace';
+    ctx.fillStyle = tier >= 6 ? '#ff5a5a' : tier >= 4 ? '#ffcf4d' : '#9be8ff';
+    ctx.fillText(`DANGER ${'▲'.repeat(Math.min(7, tier))}${tier > 7 ? `+${tier - 7}` : ''}`, W / 2, y);
   }
 
   private worldHud(ctx: CanvasRenderingContext2D, world: World): void {
