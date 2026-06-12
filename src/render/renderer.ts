@@ -23,7 +23,7 @@ const W = CFG.view.width;
 const H = CFG.view.height;
 
 // Bump this whenever behaviour changes so you can confirm a fresh build is live.
-const VERSION = 'v0.30 · juice: hit-flash, rage knockback, finishers, KO freeze';
+const VERSION = 'v0.31 · world objectives + onboarding (guided loop)';
 
 /** Blend two #rrggbb colors (t in 0..1). */
 function hexLerp(a: string, b: string, t: number): string {
@@ -126,6 +126,7 @@ export class Renderer {
     }
 
     this.worldHud(ctx, world);
+    this.questTracker(ctx, world);
     this.skillBar(ctx, world);
     if (world.crafting) this.craftPanel(ctx, world);
     if (world.skillTreeOpen) this.skillTree(ctx, world);
@@ -356,6 +357,35 @@ export class Renderer {
       ctx.fillRect(c.x - s / 2, c.y - 3, s, 6);
       ctx.restore();
     }
+  }
+
+  /** The current objective, top-center: a goal + the one control it teaches. */
+  private questTracker(ctx: CanvasRenderingContext2D, world: World): void {
+    const q = world.currentQuest();
+    const cx = W / 2, top = 14, pw = 460;
+    ctx.textAlign = 'center';
+    if (!q) {
+      ctx.font = 'bold 14px ui-monospace, monospace';
+      ctx.fillStyle = 'rgba(124,255,90,0.85)';
+      ctx.fillText('★ Free play — explore, dig deeper, get stronger', cx, top + 16);
+      return;
+    }
+    const prog = world.questProgress();
+    const frac = Math.max(0, Math.min(1, prog / q.target));
+    // Panel.
+    ctx.fillStyle = 'rgba(8,6,16,0.66)';
+    ctx.fillRect(cx - pw / 2, top, pw, 56);
+    ctx.strokeStyle = 'rgba(255,207,77,0.5)'; ctx.lineWidth = 1;
+    ctx.strokeRect(cx - pw / 2, top, pw, 56);
+    // Title + count.
+    ctx.fillStyle = '#ffcf4d'; ctx.font = 'bold 15px ui-monospace, monospace';
+    ctx.fillText(`◇ ${q.title}   ${Math.floor(prog)}/${q.target}`, cx, top + 19);
+    // Progress bar.
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(cx - pw / 2 + 14, top + 27, pw - 28, 7);
+    ctx.fillStyle = '#7cff5a'; ctx.fillRect(cx - pw / 2 + 14, top + 27, (pw - 28) * frac, 7);
+    // The single control hint for this step.
+    ctx.fillStyle = '#bfe9ff'; ctx.font = '12px ui-monospace, monospace';
+    ctx.fillText(q.hint, cx, top + 49);
   }
 
   private worldHud(ctx: CanvasRenderingContext2D, world: World): void {

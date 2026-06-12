@@ -17,6 +17,7 @@ import type { FxSink } from '../game/match';
 import type { SoundName } from '../audio/audio';
 import { type CharState, xpForCharLevel, passives, canLearn, SKILLS, SKILL_BY_ID } from '../game/skills';
 import { type Recipe, type CraftCategory, RECIPE_BY_ID, BLOCK_MAT, hasIngredients } from '../game/crafting';
+import { QUESTS, type QuestStage, type QuestStats, newQuestStats, questValue } from './quests';
 
 const { Engine, Composite, Body, Events } = Matter;
 const C = CFG.combat;
@@ -68,12 +69,18 @@ export class World {
   private hitstopSteps = 0;
   private readonly MAX_MONSTERS = 4;
 
+  // Onboarding / objective chain (gives the world direction + teaches one control at a time).
+  questStats: QuestStats = newQuestStats();
+  questIndex = 0;
+  private prevPlayerX = 0;
+
   constructor(private fx: FxSink, public playerEvo: Evolution = 'none') {
     this.engine = Engine.create();
     this.engine.gravity.y = CFG.sim.gravityY;
     this.grid = new WorldGrid();
     this.player = this.makeFighter(0, this.grid.spawnX, this.grid.spawnY, 1, '#22e3ff', '#aef9ff', 'YOU', 0, CFG.health.core, this.playerEvo);
     Events.on(this.engine, 'collisionStart', (e) => { for (const p of e.pairs) this.resolveHit(p.bodyA, p.bodyB); });
+    this.prevPlayerX = this.player.torsoBody.position.x;
     this.centerCamera();
   }
 
@@ -112,6 +119,7 @@ export class World {
     this.mineWithSwing(now, input);
     this.worldHazards(now);
     this.handleDeaths(now);
+    this.updateQuests(now);
     for (const ev of this.player.soundEvents) this.fx.sound(ev as SoundName);
     this.player.soundEvents.length = 0;
     for (const m of this.monsters) m.soundEvents.length = 0; // don't spam enemy swings
@@ -155,7 +163,11 @@ export class World {
     const py = w ? w.body.position.y : this.player.handPos().y;
     const radiusMul = 1.2 + this.digTier * 0.55 + (this.player.evolution === 'burrower' ? 1.0 : 0);
     const mined = this.grid.digPx(px, py, this.grid.cell * radiusMul);
-    for (const [m, n] of mined) this.inventory.set(m, (this.inventory.get(m) ?? 0) + n);
+    for (const [m, n] of mined) {
+      this.inventory.set(m, (this.inventory.get(m) ?? 0) + n);
+      this.questStats.mined += n;
+      if (m === Mat.Ore) this.questStats.minedOre += n;
+    }
     if (mined.size > 0) this.fx.sound('dig');
   }
 
@@ -318,6 +330,7 @@ export class World {
     if (!r || !this.canCraftRecipe(r)) { this.fx.sound('ui'); return false; }
     for (const [m, n] of r.ingredients) this.inventory.set(m, (this.inventory.get(m) ?? 0) - n);
     this.applyRecipe(r);
+    this.questStats.crafted++;
     this.fx.sound('parry');
     this.flash(`CRAFTED ${r.name}!`, this.simNow);
     return true;
@@ -432,6 +445,7 @@ export class World {
     if (!s || !canLearn(s, this.char)) { this.fx.sound('ui'); return false; }
     this.char.learned[id] = (this.char.learned[id] ?? 0) + 1;
     this.char.skillPoints--;
+    this.questStats.skillsSpent++;
     this.applyPlayerStats();
     this.equipSlots();
     this.fx.sound('parry');
@@ -440,6 +454,40 @@ export class World {
 
   private equipSlots(): void {
     this.slots = SKILLS.filter((s) => s.kind === 'active' && (this.char.learned[s.id] ?? 0) > 0).map((s) => s.id).slice(0, 4);
+  }
+
+  // ---- quests / onboarding ------------------------------------------------
+
+  /** The objective the player is currently on, or null once they're all done. */
+  currentQuest(): QuestStage | null {
+    return this.questIndex < QUESTS.length ? QUESTS[this.questIndex] : null;
+  }
+
+  /** Progress (0..target) toward the current objective. */
+  questProgress(): number {
+    const q = this.currentQuest();
+    return q ? Math.min(questValue(q.metric, this.questStats), q.target) : 0;
+  }
+
+  private updateQuests(now: number): void {
+    // Roll the live tallies the metrics read from.
+    const px = this.player.torsoBody.position.x;
+    if (!this.player.koed) this.questStats.moved += Math.abs(px - this.prevPlayerX);
+    this.prevPlayerX = px;
+    this.questStats.kills = this.kills;
+    this.questStats.maxDepth = Math.max(this.questStats.maxDepth, this.depth());
+
+    const q = this.currentQuest();
+    if (!q) return;
+    if (questValue(q.metric, this.questStats) >= q.target) {
+      this.questIndex++;
+      this.addXP(q.rewardXp);
+      this.loot += q.rewardLoot;
+      const next = this.currentQuest();
+      this.fx.confetti(px, this.player.torsoBody.position.y - 40);
+      this.fx.sound('ko');
+      this.flash(next ? `OBJECTIVE DONE! +${q.rewardXp} XP  ·  Next: ${next.title}` : 'ALL OBJECTIVES DONE — the world is yours!', now);
+    }
   }
 
   skillCooldown(id: string, now: number): number {
